@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Manajemen Ujian Sekolah - SMP Bhinneka Tunggal Ika",
+  "description": "Aplikasi web manajemen Ujian Sekolah SMP Bhinneka Tunggal Ika untuk mengelola data guru, gedung, ruang, mata pelajaran, jadwal ujian, dan jadwal pengawas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

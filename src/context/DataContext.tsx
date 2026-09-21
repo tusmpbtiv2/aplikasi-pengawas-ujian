@@ -1,0 +1,1402 @@
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
+import {
+  Teacher,
+  Building,
+  Room,
+  Subject,
+  ExamSchedule,
+  InvigilatorSchedule,
+  Settings,
+  ConflictDetail,
+  AppUser,
+} from '../types/database';
+
+// Initial default seed data for immediate demonstration and offline fallback
+const INITIAL_SETTINGS: Settings = {
+  id: 'a0000000-0000-0000-0000-000000000001',
+  school_name: 'SMP BHINNEKA TUNGGAL IKA',
+  school_address: 'Jl. Pendidikan No. 45, Jakarta',
+  school_logo: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=128&auto=format&fit=crop&q=80',
+  exam_name: 'Penilaian Akhir Semester (PAS) Genap',
+  academic_year: '2024/2025',
+  semester: 'Genap',
+  default_invigilators_per_room: 2,
+  default_start_time: '07:30',
+  default_duration: 90,
+  break_duration: 30,
+  honor_per_session: 40000,
+  theme: 'blue',
+  date_format: 'DD/MM/YYYY',
+  app_name: 'Sistem Manajemen Ujian Sekolah',
+};
+
+const INITIAL_USERS: AppUser[] = [
+  {
+    id: 'u-admin-1',
+    email: 'admin@smpbhinneka.sch.id',
+    full_name: 'Administrator Ujian Utama',
+    role: 'ADMIN',
+    active: true,
+    created_at: '2026-09-01T08:00:00Z',
+  },
+  {
+    id: 'u-panitia-1',
+    email: 'panitia@smpbhinneka.sch.id',
+    full_name: 'Drs. H. Ahmad Sudrajat, M.Pd.',
+    role: 'PANITIA',
+    active: true,
+    created_at: '2026-09-05T09:00:00Z',
+  },
+  {
+    id: 'u-panitia-2',
+    email: 'sekretaris@smpbhinneka.sch.id',
+    full_name: 'Siti Rahmawati, S.Pd.',
+    role: 'PANITIA',
+    active: true,
+    created_at: '2026-09-06T09:30:00Z',
+  },
+  {
+    id: 'u-viewer-1',
+    email: 'monitoring@smpbhinneka.sch.id',
+    full_name: 'Pengawas Pembina / Viewer',
+    role: 'VIEWER',
+    active: true,
+    created_at: '2026-09-10T10:00:00Z',
+  },
+];
+
+const INITIAL_BUILDINGS: Building[] = [
+  {
+    id: 'b0000000-0000-0000-0000-000000000001',
+    name: 'Gedung Utama A',
+    code: 'GDA',
+    address: 'Lantai 1-2 Sayap Barat',
+    notes: 'Gedung ruang kelas VII dan VIII',
+  },
+  {
+    id: 'b0000000-0000-0000-0000-000000000002',
+    name: 'Gedung Timur B',
+    code: 'GDB',
+    address: 'Lantai 1-2 Sayap Timur',
+    notes: 'Gedung ruang kelas IX dan Lab Komputer',
+  },
+];
+
+const INITIAL_ROOMS: Room[] = [
+  {
+    id: 'c0000000-0000-0000-0000-000000000001',
+    building_id: 'b0000000-0000-0000-0000-000000000001',
+    name: 'Ruang 01 (Kelas VII-A)',
+    code: 'R-01',
+    capacity: 32,
+    active: true,
+    notes: 'Dilengkapi pendingin ruangan',
+  },
+  {
+    id: 'c0000000-0000-0000-0000-000000000002',
+    building_id: 'b0000000-0000-0000-0000-000000000001',
+    name: 'Ruang 02 (Kelas VII-B)',
+    code: 'R-02',
+    capacity: 32,
+    active: true,
+    notes: 'Kapasitas 32 siswa',
+  },
+  {
+    id: 'c0000000-0000-0000-0000-000000000003',
+    building_id: 'b0000000-0000-0000-0000-000000000001',
+    name: 'Ruang 03 (Kelas VIII-A)',
+    code: 'R-03',
+    capacity: 30,
+    active: true,
+    notes: 'Lantai 2 Gedung A',
+  },
+  {
+    id: 'c0000000-0000-0000-0000-000000000004',
+    building_id: 'b0000000-0000-0000-0000-000000000002',
+    name: 'Ruang 04 (Kelas IX-A)',
+    code: 'R-04',
+    capacity: 30,
+    active: true,
+    notes: 'Gedung B Lantai 1',
+  },
+  {
+    id: 'c0000000-0000-0000-0000-000000000005',
+    building_id: 'b0000000-0000-0000-0000-000000000002',
+    name: 'Ruang 05 (Lab Komputer)',
+    code: 'R-05',
+    capacity: 36,
+    active: true,
+    notes: 'Ujian berbasis komputer',
+  },
+];
+
+const INITIAL_TEACHERS: Teacher[] = [
+  {
+    id: 'd0000000-0000-0000-0000-000000000001',
+    name: 'Drs. H. Ahmad Sudrajat, M.Pd.',
+    gender: 'Laki-laki',
+    employee_number: '197503152000031002',
+    invigilator_code: 'P01',
+    active: true,
+    available_days: ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Minggu'],
+    notes: 'Koordinator Pengawas Ujian',
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000002',
+    name: 'Siti Rahmawati, S.Pd.',
+    gender: 'Perempuan',
+    employee_number: '198207122008012015',
+    invigilator_code: 'P02',
+    active: true,
+    available_days: ['Senin', 'Selasa', 'Rabu', 'Kamis'],
+    notes: 'Guru Bahasa Indonesia',
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000003',
+    name: 'Budi Santoso, M.Si.',
+    gender: 'Laki-laki',
+    employee_number: '198511242010011009',
+    invigilator_code: 'P03',
+    active: true,
+    available_days: ['Senin', 'Rabu', 'Kamis', 'Jumat', 'Minggu'],
+    notes: 'Guru IPA Terpadu',
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000004',
+    name: 'Nurul Hidayah, S.Pd.',
+    gender: 'Perempuan',
+    employee_number: '199004182014022008',
+    invigilator_code: 'P04',
+    active: true,
+    available_days: ['Senin', 'Selasa', 'Kamis', 'Jumat'],
+    notes: 'Guru Bahasa Inggris',
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000005',
+    name: 'Eko Prasetyo, S.Pd.',
+    gender: 'Laki-laki',
+    employee_number: '198809052012011011',
+    invigilator_code: 'P05',
+    active: true,
+    available_days: ['Senin', 'Selasa', 'Rabu', 'Jumat'],
+    notes: 'Guru PPKn',
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000006',
+    name: 'Dewi Lestari, S.Pd.',
+    gender: 'Perempuan',
+    employee_number: '199301202019032014',
+    invigilator_code: 'P06',
+    active: true,
+    available_days: ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Minggu'],
+    notes: 'Guru Seni Budaya',
+  },
+];
+
+const INITIAL_SUBJECTS: Subject[] = [
+  {
+    id: 'e0000000-0000-0000-0000-000000000001',
+    name: 'Bahasa Indonesia',
+    code: 'BIN-01',
+    grade_level: 7,
+    grade_levels: ['7', '8', '9'],
+    active: true,
+    notes: 'Mata pelajaran wajib nasional',
+  },
+  {
+    id: 'e0000000-0000-0000-0000-000000000002',
+    name: 'Matematika',
+    code: 'MTK-02',
+    grade_level: 7,
+    grade_levels: ['7', '8', '9'],
+    active: true,
+    notes: 'Kalkulator tidak diperkenankan',
+  },
+  {
+    id: 'e0000000-0000-0000-0000-000000000003',
+    name: 'Ilmu Pengetahuan Alam (IPA)',
+    code: 'IPA-03',
+    grade_level: 8,
+    grade_levels: ['7', '8', '9'],
+    active: true,
+    notes: 'Teori Biologi dan Fisika',
+  },
+  {
+    id: 'e0000000-0000-0000-0000-000000000004',
+    name: 'Bahasa Inggris',
+    code: 'BIG-04',
+    grade_level: 9,
+    grade_levels: ['7', '8', '9'],
+    active: true,
+    notes: 'Termasuk lembar listening/reading',
+  },
+  {
+    id: 'e0000000-0000-0000-0000-000000000005',
+    name: 'Pendidikan Pancasila & Kewarganegaraan (PPKn)',
+    code: 'PPK-05',
+    grade_level: 7,
+    grade_levels: ['7', '8'],
+    active: true,
+    notes: 'Kurikulum Merdeka',
+  },
+];
+
+// Helper to format date offset
+const getDateString = (daysOffset: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  return d.toISOString().split('T')[0];
+};
+
+const INITIAL_EXAM_SCHEDULES: ExamSchedule[] = [
+  {
+    id: 'f0000000-0000-0000-0000-000000000001',
+    exam_date: getDateString(1),
+    day_name: 'Senin',
+    subject_id: 'e0000000-0000-0000-0000-000000000001',
+    start_time: '07:30:00',
+    end_time: '09:30:00',
+    session: 'Sesi 1',
+    notes: 'Hari pertama ujian semester',
+  },
+  {
+    id: 'f0000000-0000-0000-0000-000000000002',
+    exam_date: getDateString(1),
+    day_name: 'Senin',
+    subject_id: 'e0000000-0000-0000-0000-000000000005',
+    start_time: '10:00:00',
+    end_time: '11:30:00',
+    session: 'Sesi 2',
+    notes: 'Sesi siang PPKn',
+  },
+  {
+    id: 'f0000000-0000-0000-0000-000000000003',
+    exam_date: getDateString(2),
+    day_name: 'Selasa',
+    subject_id: 'e0000000-0000-0000-0000-000000000002',
+    start_time: '07:30:00',
+    end_time: '09:30:00',
+    session: 'Sesi 1',
+    notes: 'Matematika',
+  },
+  {
+    id: 'f0000000-0000-0000-0000-000000000004',
+    exam_date: getDateString(3),
+    day_name: 'Rabu',
+    subject_id: 'e0000000-0000-0000-0000-000000000003',
+    start_time: '07:30:00',
+    end_time: '09:30:00',
+    session: 'Sesi 1',
+    notes: 'IPA Terpadu',
+  },
+  {
+    id: 'f0000000-0000-0000-0000-000000000005',
+    exam_date: getDateString(4),
+    day_name: 'Kamis',
+    subject_id: 'e0000000-0000-0000-0000-000000000004',
+    start_time: '07:30:00',
+    end_time: '09:30:00',
+    session: 'Sesi 1',
+    notes: 'Bahasa Inggris',
+  },
+];
+
+const INITIAL_INVIGILATOR_SCHEDULES: InvigilatorSchedule[] = [
+  {
+    id: '10000000-0000-0000-0000-000000000001',
+    exam_schedule_id: 'f0000000-0000-0000-0000-000000000001',
+    room_id: 'c0000000-0000-0000-0000-000000000001',
+    teacher_id: 'd0000000-0000-0000-0000-000000000001',
+    role: 'Pengawas 1',
+    status: 'Dijadwalkan',
+    notes: 'Pengawas Ruang 01',
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000002',
+    exam_schedule_id: 'f0000000-0000-0000-0000-000000000001',
+    room_id: 'c0000000-0000-0000-0000-000000000002',
+    teacher_id: 'd0000000-0000-0000-0000-000000000002',
+    role: 'Pengawas 1',
+    status: 'Dijadwalkan',
+    notes: 'Pengawas Ruang 02',
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000003',
+    exam_schedule_id: 'f0000000-0000-0000-0000-000000000002',
+    room_id: 'c0000000-0000-0000-0000-000000000001',
+    teacher_id: 'd0000000-0000-0000-0000-000000000003',
+    role: 'Pengawas 1',
+    status: 'Dijadwalkan',
+    notes: 'Pengawas Ruang 01 Sesi 2',
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000004',
+    exam_schedule_id: 'f0000000-0000-0000-0000-000000000003',
+    room_id: 'c0000000-0000-0000-0000-000000000001',
+    teacher_id: 'd0000000-0000-0000-0000-000000000004',
+    role: 'Pengawas 1',
+    status: 'Dijadwalkan',
+    notes: 'Pengawas Matematika',
+  },
+];
+
+interface DataContextType {
+  loading: boolean;
+  error: string | null;
+  teachers: Teacher[];
+  buildings: Building[];
+  rooms: Room[];
+  subjects: Subject[];
+  examSchedules: ExamSchedule[];
+  invigilatorSchedules: InvigilatorSchedule[];
+  settings: Settings;
+  conflicts: ConflictDetail[];
+  
+  // Stats
+  emptyScheduleSlotsCount: number;
+  scheduledInvigilatorsCount: number;
+
+  refreshAll: () => Promise<void>;
+
+  // Teachers CRUD
+  addTeacher: (teacher: Omit<Teacher, 'id' | 'created_at' | 'updated_at'>) => Promise<{ success: boolean; error?: string }>;
+  addTeachersBatch: (teachers: Omit<Teacher, 'id' | 'created_at' | 'updated_at'>[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  updateTeacher: (id: string, updates: Partial<Teacher>) => Promise<{ success: boolean; error?: string }>;
+  deleteTeacher: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Buildings CRUD
+  addBuilding: (building: Omit<Building, 'id' | 'created_at' | 'updated_at'>) => Promise<{ success: boolean; error?: string }>;
+  addBuildingsBatch: (buildings: Omit<Building, 'id' | 'created_at' | 'updated_at'>[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  updateBuilding: (id: string, updates: Partial<Building>) => Promise<{ success: boolean; error?: string }>;
+  deleteBuilding: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Rooms CRUD
+  addRoom: (room: Omit<Room, 'id' | 'created_at' | 'updated_at' | 'building'>) => Promise<{ success: boolean; error?: string }>;
+  addRoomsBatch: (rooms: Omit<Room, 'id' | 'created_at' | 'updated_at' | 'building'>[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  updateRoom: (id: string, updates: Partial<Room>) => Promise<{ success: boolean; error?: string }>;
+  deleteRoom: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Subjects CRUD
+  addSubject: (subject: Omit<Subject, 'id' | 'created_at' | 'updated_at'>) => Promise<{ success: boolean; error?: string }>;
+  addSubjectsBatch: (subjects: Omit<Subject, 'id' | 'created_at' | 'updated_at'>[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  updateSubject: (id: string, updates: Partial<Subject>) => Promise<{ success: boolean; error?: string }>;
+  deleteSubject: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Exam Schedules CRUD
+  addExamSchedule: (schedule: Omit<ExamSchedule, 'id' | 'created_at' | 'updated_at' | 'subject'>) => Promise<{ success: boolean; error?: string }>;
+  addExamSchedulesBatch: (schedules: Omit<ExamSchedule, 'id' | 'created_at' | 'updated_at' | 'subject'>[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  updateExamSchedule: (id: string, updates: Partial<ExamSchedule>) => Promise<{ success: boolean; error?: string }>;
+  deleteExamSchedule: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Invigilator Schedules CRUD
+  addInvigilatorSchedule: (inv: Omit<InvigilatorSchedule, 'id' | 'created_at' | 'updated_at' | 'exam_schedule' | 'room' | 'teacher'>) => Promise<{ success: boolean; error?: string }>;
+  addInvigilatorSchedulesBatch: (
+    items: Omit<InvigilatorSchedule, 'id' | 'created_at' | 'updated_at' | 'exam_schedule' | 'room' | 'teacher'>[],
+    options?: { overwriteExisting?: boolean; examScheduleIds?: string[]; roomIds?: string[] }
+  ) => Promise<{ success: boolean; count: number; error?: string }>;
+  clearInvigilatorSchedules: (examScheduleIds?: string[], roomIds?: string[]) => Promise<{ success: boolean; count: number; error?: string }>;
+  quickUpdateInvigilatorStatus: (id: string, newStatus: 'Dijadwalkan' | 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha') => Promise<{ success: boolean; error?: string }>;
+  quickReplaceInvigilator: (id: string, newTeacherId: string | null, oldStatus?: 'Dijadwalkan' | 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha') => Promise<{ success: boolean; error?: string }>;
+  quickConfirmAttendance: (id: string, status: 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha', actualTime?: string, notes?: string) => Promise<{ success: boolean; error?: string }>;
+  quickSubstituteInvigilator: (scheduleId: string, substituteTeacherId: string, reason: string) => Promise<{ success: boolean; error?: string }>;
+  batchConfirmAttendance: (updates: { id: string; status: 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha'; actualTime?: string; notes?: string }[]) => Promise<{ success: boolean; error?: string }>;
+  updateInvigilatorSchedule: (id: string, updates: Partial<InvigilatorSchedule>) => Promise<{ success: boolean; error?: string }>;
+  deleteInvigilatorSchedule: (id: string) => Promise<{ success: boolean; error?: string }>;
+  seedDemo45RoomsAndTeachers: () => Promise<{ success: boolean; message: string }>;
+
+  // Users & Roles
+  users: AppUser[];
+  addUser: (user: Omit<AppUser, 'id' | 'created_at'>) => Promise<{ success: boolean; error?: string }>;
+  updateUser: (id: string, updates: Partial<AppUser>) => Promise<{ success: boolean; error?: string }>;
+  deleteUser: (id: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Settings, Backup & Reset
+  updateSettings: (updates: Partial<Settings>) => Promise<{ success: boolean; error?: string }>;
+  backupData: () => any;
+  resetData: (mode: 'INVIGILATORS_ONLY' | 'EXAMS_AND_INVIGILATORS' | 'RESET_TO_DEFAULT' | 'ALL_DATA') => Promise<{ success: boolean; message: string }>;
+}
+
+const DataContext = createContext<DataContextType | undefined>(undefined);
+
+export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [teachers, setTeachers] = useState<Teacher[]>(INITIAL_TEACHERS);
+  const [buildings, setBuildings] = useState<Building[]>(INITIAL_BUILDINGS);
+  const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
+  const [subjects, setSubjects] = useState<Subject[]>(INITIAL_SUBJECTS);
+  const [examSchedules, setExamSchedules] = useState<ExamSchedule[]>(INITIAL_EXAM_SCHEDULES);
+  const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(INITIAL_INVIGILATOR_SCHEDULES);
+  const [settings, setSettings] = useState<Settings>(INITIAL_SETTINGS);
+  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch all data from Supabase
+  const refreshAll = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [
+        teachersRes,
+        buildingsRes,
+        roomsRes,
+        subjectsRes,
+        examSchedulesRes,
+        invigilatorRes,
+        settingsRes,
+      ] = await Promise.all([
+        supabase.from('teachers').select('*').order('name'),
+        supabase.from('buildings').select('*').order('name'),
+        supabase.from('rooms').select('*, building:buildings(*)').order('code'),
+        supabase.from('subjects').select('*').order('name'),
+        supabase.from('exam_schedules').select('*, subject:subjects(*)').order('exam_date').order('start_time'),
+        supabase.from('invigilator_schedules').select('*, exam_schedule:exam_schedules(*, subject:subjects(*)), room:rooms(*), teacher:teachers(*)'),
+        supabase.from('settings').select('*').limit(1).maybeSingle(),
+      ]);
+
+      if (teachersRes.data && teachersRes.data.length > 0) setTeachers(teachersRes.data);
+      if (buildingsRes.data && buildingsRes.data.length > 0) setBuildings(buildingsRes.data);
+      if (roomsRes.data && roomsRes.data.length > 0) setRooms(roomsRes.data);
+      if (subjectsRes.data && subjectsRes.data.length > 0) setSubjects(subjectsRes.data);
+      if (examSchedulesRes.data && examSchedulesRes.data.length > 0) setExamSchedules(examSchedulesRes.data);
+      if (invigilatorRes.data && invigilatorRes.data.length > 0) setInvigilatorSchedules(invigilatorRes.data);
+      if (settingsRes.data) setSettings(settingsRes.data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengambil data dari Supabase';
+      console.warn('Supabase fetch error, fallback to memory state:', msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // Conflict detection
+  const conflicts = useMemo<ConflictDetail[]>(() => {
+    const list: ConflictDetail[] = [];
+
+    // 1. Double booking: Teacher assigned to multiple rooms at the same date & time/session
+    const teacherSlotMap = new Map<string, InvigilatorSchedule[]>();
+
+    invigilatorSchedules.forEach((inv) => {
+      if (!inv.teacher_id) return;
+      const exam = examSchedules.find((es) => es.id === inv.exam_schedule_id);
+      if (!exam) return;
+
+      const key = `${inv.teacher_id}_${exam.exam_date}_${exam.session}`;
+      const existing = teacherSlotMap.get(key) || [];
+      existing.push(inv);
+      teacherSlotMap.set(key, existing);
+    });
+
+    teacherSlotMap.forEach((assignments) => {
+      if (assignments.length > 1) {
+        const teacher = teachers.find((t) => t.id === assignments[0].teacher_id);
+        const exam = examSchedules.find((es) => es.id === assignments[0].exam_schedule_id);
+        const roomNames = assignments
+          .map((a) => rooms.find((r) => r.id === a.room_id)?.name || 'Ruang')
+          .join(', ');
+
+        list.push({
+          id: `db_${assignments[0].id}`,
+          type: 'DOUBLE_BOOKING',
+          severity: 'ERROR',
+          description: `Guru ${teacher?.name || 'Pengawas'} terjadwal mengawas ganda di beberapa ruang (${roomNames}) pada ${exam?.exam_date} (${exam?.session}).`,
+          exam_schedule_id: exam?.id,
+          teacher_id: teacher?.id,
+        });
+      }
+    });
+
+    // 2. Unavailable day: Teacher assigned on a day not in their available_days
+    invigilatorSchedules.forEach((inv) => {
+      if (!inv.teacher_id) return;
+      const teacher = teachers.find((t) => t.id === inv.teacher_id);
+      const exam = examSchedules.find((es) => es.id === inv.exam_schedule_id);
+      if (!teacher || !exam) return;
+
+      if (teacher.available_days && !teacher.available_days.includes(exam.day_name)) {
+        list.push({
+          id: `unavail_${inv.id}`,
+          type: 'UNAVAILABLE_DAY',
+          severity: 'WARNING',
+          description: `Guru ${teacher.name} dijadwalkan pada hari ${exam.day_name} (${exam.exam_date}), namun tidak termasuk dalam pilihan ketersediaan hari mengawasnya.`,
+          exam_schedule_id: exam.id,
+          teacher_id: teacher.id,
+        });
+      }
+    });
+
+    // 3. Unassigned rooms: Active rooms that do not have an invigilator for an exam schedule
+    examSchedules.forEach((exam) => {
+      const activeRooms = rooms.filter((r) => r.active);
+      activeRooms.forEach((room) => {
+        const hasInvigilator = invigilatorSchedules.some(
+          (inv) => inv.exam_schedule_id === exam.id && inv.room_id === room.id && inv.teacher_id
+        );
+        if (!hasInvigilator) {
+          list.push({
+            id: `empty_${exam.id}_${room.id}`,
+            type: 'UNASSIGNED_ROOM',
+            severity: 'WARNING',
+            description: `Ruang ${room.name} (${room.code}) pada jadwal ujian ${exam.exam_date} (${exam.session}) belum memiliki guru pengawas.`,
+            exam_schedule_id: exam.id,
+            room_id: room.id,
+          });
+        }
+      });
+    });
+
+    return list;
+  }, [invigilatorSchedules, examSchedules, teachers, rooms]);
+
+  // Statistics
+  const emptyScheduleSlotsCount = useMemo(() => {
+    let count = 0;
+    const activeRooms = rooms.filter((r) => r.active);
+    examSchedules.forEach((exam) => {
+      activeRooms.forEach((room) => {
+        const assigned = invigilatorSchedules.some(
+          (inv) => inv.exam_schedule_id === exam.id && inv.room_id === room.id && inv.teacher_id
+        );
+        if (!assigned) count++;
+      });
+    });
+    return count;
+  }, [rooms, examSchedules, invigilatorSchedules]);
+
+  const scheduledInvigilatorsCount = useMemo(() => {
+    return invigilatorSchedules.filter((inv) => !!inv.teacher_id).length;
+  }, [invigilatorSchedules]);
+
+  // ==================== CRUD TEACHERS ====================
+  const addTeacher = async (payload: Omit<Teacher, 'id' | 'created_at' | 'updated_at'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `teacher_${Date.now()}`;
+    const newRecord: Teacher = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    setTeachers((prev) => [newRecord, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('teachers').insert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addTeachersBatch = async (payloads: Omit<Teacher, 'id' | 'created_at' | 'updated_at'>[]) => {
+    if (payloads.length === 0) return { success: true, count: 0 };
+    const now = new Date().toISOString();
+    const newRecords: Teacher[] = payloads.map((p, idx) => ({
+      ...p,
+      id: crypto.randomUUID ? crypto.randomUUID() : `teacher_${Date.now()}_${idx}`,
+      created_at: now,
+    }));
+
+    setTeachers((prev) => [...newRecords, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('teachers').insert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const updateTeacher = async (id: string, updates: Partial<Teacher>) => {
+    setTeachers((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('teachers').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteTeacher = async (id: string) => {
+    setTeachers((prev) => prev.filter((t) => t.id !== id));
+    setInvigilatorSchedules((prev) => prev.map((inv) => (inv.teacher_id === id ? { ...inv, teacher_id: null } : inv)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('teachers').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== CRUD BUILDINGS ====================
+  const addBuilding = async (payload: Omit<Building, 'id' | 'created_at' | 'updated_at'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `b_${Date.now()}`;
+    const newRecord: Building = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    setBuildings((prev) => [newRecord, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('buildings').insert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addBuildingsBatch = async (batch: Omit<Building, 'id' | 'created_at' | 'updated_at'>[]) => {
+    const newRecords: Building[] = batch.map((b, idx) => ({
+      ...b,
+      id: crypto.randomUUID ? crypto.randomUUID() : `b_${Date.now()}_${idx}`,
+      created_at: new Date().toISOString(),
+    }));
+
+    setBuildings((prev) => [...newRecords, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('buildings').insert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const updateBuilding = async (id: string, updates: Partial<Building>) => {
+    setBuildings((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('buildings').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteBuilding = async (id: string) => {
+    setBuildings((prev) => prev.filter((b) => b.id !== id));
+    setRooms((prev) => prev.filter((r) => r.building_id !== id));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('buildings').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== CRUD ROOMS ====================
+  const addRoom = async (payload: Omit<Room, 'id' | 'created_at' | 'updated_at' | 'building'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `r_${Date.now()}`;
+    const newRecord: Room = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    setRooms((prev) => [newRecord, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('rooms').insert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addRoomsBatch = async (payloads: Omit<Room, 'id' | 'created_at' | 'updated_at' | 'building'>[]) => {
+    if (payloads.length === 0) return { success: true, count: 0 };
+    const now = new Date().toISOString();
+    const newRecords: Room[] = payloads.map((p, idx) => ({
+      ...p,
+      id: crypto.randomUUID ? crypto.randomUUID() : `r_${Date.now()}_${idx}`,
+      created_at: now,
+    }));
+
+    setRooms((prev) => [...newRecords, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('rooms').insert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const updateRoom = async (id: string, updates: Partial<Room>) => {
+    setRooms((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('rooms').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteRoom = async (id: string) => {
+    setRooms((prev) => prev.filter((r) => r.id !== id));
+    setInvigilatorSchedules((prev) => prev.filter((inv) => inv.room_id !== id));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('rooms').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== CRUD SUBJECTS ====================
+  const addSubject = async (payload: Omit<Subject, 'id' | 'created_at' | 'updated_at'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `sub_${Date.now()}`;
+    const newRecord: Subject = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    setSubjects((prev) => [newRecord, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('subjects').insert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addSubjectsBatch = async (payloads: Omit<Subject, 'id' | 'created_at' | 'updated_at'>[]) => {
+    if (payloads.length === 0) return { success: true, count: 0 };
+    const now = new Date().toISOString();
+    const newRecords: Subject[] = payloads.map((p, idx) => ({
+      ...p,
+      id: crypto.randomUUID ? crypto.randomUUID() : `sub_${Date.now()}_${idx}`,
+      created_at: now,
+    }));
+
+    setSubjects((prev) => [...newRecords, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('subjects').insert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const updateSubject = async (id: string, updates: Partial<Subject>) => {
+    setSubjects((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('subjects').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteSubject = async (id: string) => {
+    setSubjects((prev) => prev.filter((s) => s.id !== id));
+    setExamSchedules((prev) => prev.filter((es) => es.subject_id !== id));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('subjects').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== CRUD EXAM SCHEDULES ====================
+  const addExamSchedule = async (payload: Omit<ExamSchedule, 'id' | 'created_at' | 'updated_at' | 'subject'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `es_${Date.now()}`;
+    const newRecord: ExamSchedule = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    setExamSchedules((prev) => [newRecord, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('exam_schedules').insert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addExamSchedulesBatch = async (payloads: Omit<ExamSchedule, 'id' | 'created_at' | 'updated_at' | 'subject'>[]) => {
+    if (payloads.length === 0) return { success: true, count: 0 };
+    const now = new Date().toISOString();
+    const newRecords: ExamSchedule[] = payloads.map((p, idx) => ({
+      ...p,
+      id: crypto.randomUUID ? crypto.randomUUID() : `es_${Date.now()}_${idx}`,
+      created_at: now,
+    }));
+
+    setExamSchedules((prev) => [...newRecords, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('exam_schedules').insert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const updateExamSchedule = async (id: string, updates: Partial<ExamSchedule>) => {
+    setExamSchedules((prev) => prev.map((es) => (es.id === id ? { ...es, ...updates } : es)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('exam_schedules').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteExamSchedule = async (id: string) => {
+    setExamSchedules((prev) => prev.filter((es) => es.id !== id));
+    setInvigilatorSchedules((prev) => prev.filter((inv) => inv.exam_schedule_id !== id));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('exam_schedules').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== CRUD INVIGILATOR SCHEDULES ====================
+  const addInvigilatorSchedule = async (payload: Omit<InvigilatorSchedule, 'id' | 'created_at' | 'updated_at' | 'exam_schedule' | 'room' | 'teacher'>) => {
+    const newId = crypto.randomUUID ? crypto.randomUUID() : `inv_${Date.now()}`;
+    const newRecord: InvigilatorSchedule = { ...payload, id: newId, created_at: new Date().toISOString() };
+    
+    // Check if slot already exists
+    const existingIndex = invigilatorSchedules.findIndex(
+      (inv) => inv.exam_schedule_id === payload.exam_schedule_id && inv.room_id === payload.room_id && inv.role === payload.role
+    );
+
+    if (existingIndex >= 0) {
+      // Update existing
+      setInvigilatorSchedules((prev) => prev.map((item, idx) => (idx === existingIndex ? { ...item, ...payload } : item)));
+    } else {
+      setInvigilatorSchedules((prev) => [newRecord, ...prev]);
+    }
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('invigilator_schedules').upsert([newRecord]);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const updateInvigilatorSchedule = async (id: string, updates: Partial<InvigilatorSchedule>) => {
+    setInvigilatorSchedules((prev) => prev.map((inv) => (inv.id === id ? { ...inv, ...updates } : inv)));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('invigilator_schedules').update(updates).eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  const addInvigilatorSchedulesBatch = async (
+    items: Omit<InvigilatorSchedule, 'id' | 'created_at' | 'updated_at' | 'exam_schedule' | 'room' | 'teacher'>[],
+    options?: { overwriteExisting?: boolean; examScheduleIds?: string[]; roomIds?: string[] }
+  ) => {
+    if (items.length === 0) return { success: true, count: 0 };
+    const now = new Date().toISOString();
+    const newRecords: InvigilatorSchedule[] = items.map((p, idx) => ({
+      ...p,
+      id: crypto.randomUUID ? crypto.randomUUID() : `inv_${Date.now()}_${idx}`,
+      created_at: now,
+    }));
+
+    setInvigilatorSchedules((prev) => {
+      let filtered = prev;
+      if (options?.overwriteExisting) {
+        filtered = prev.filter((existing) => {
+          const matchExam = !options.examScheduleIds || options.examScheduleIds.includes('ALL') || options.examScheduleIds.includes(existing.exam_schedule_id);
+          const matchRoom = !options.roomIds || options.roomIds.includes('ALL') || options.roomIds.includes(existing.room_id);
+          return !(matchExam && matchRoom);
+        });
+      } else {
+        // Only replace exact matches (same exam, room, role)
+        const newKeys = new Set(newRecords.map((n) => `${n.exam_schedule_id}_${n.room_id}_${n.role}`));
+        filtered = prev.filter((existing) => !newKeys.has(`${existing.exam_schedule_id}_${existing.room_id}_${existing.role}`));
+      }
+      return [...newRecords, ...filtered];
+    });
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        if (options?.overwriteExisting && options.examScheduleIds && options.examScheduleIds.length > 0 && !options.examScheduleIds.includes('ALL')) {
+          await supabase.from('invigilator_schedules').delete().in('exam_schedule_id', options.examScheduleIds);
+        }
+        const { error } = await supabase.from('invigilator_schedules').upsert(newRecords);
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: newRecords.length };
+  };
+
+  const clearInvigilatorSchedules = async (examScheduleIds?: string[], roomIds?: string[]) => {
+    setInvigilatorSchedules((prev) => {
+      return prev.filter((inv) => {
+        const matchExam = !examScheduleIds || examScheduleIds.length === 0 || examScheduleIds.includes('ALL') || examScheduleIds.includes(inv.exam_schedule_id);
+        const matchRoom = !roomIds || roomIds.length === 0 || roomIds.includes('ALL') || roomIds.includes(inv.room_id);
+        return !(matchExam && matchRoom);
+      });
+    });
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        let query = supabase.from('invigilator_schedules').delete();
+        if (examScheduleIds && examScheduleIds.length > 0 && !examScheduleIds.includes('ALL')) {
+          query = query.in('exam_schedule_id', examScheduleIds);
+        }
+        if (roomIds && roomIds.length > 0 && !roomIds.includes('ALL')) {
+          query = query.in('room_id', roomIds);
+        }
+        const { error } = await query;
+        if (error) return { success: false, count: 0, error: error.message };
+      }
+    }
+    return { success: true, count: 0 };
+  };
+
+  const quickUpdateInvigilatorStatus = async (
+    id: string,
+    newStatus: 'Dijadwalkan' | 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha'
+  ) => {
+    return updateInvigilatorSchedule(id, { status: newStatus });
+  };
+
+  const quickReplaceInvigilator = async (
+    id: string,
+    newTeacherId: string | null,
+    oldStatus: 'Dijadwalkan' | 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha' = 'Digantikan'
+  ) => {
+    return updateInvigilatorSchedule(id, {
+      teacher_id: newTeacherId,
+      status: newTeacherId ? 'Dijadwalkan' : oldStatus,
+    });
+  };
+
+  const quickConfirmAttendance = async (
+    id: string,
+    status: 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha',
+    actualTime?: string,
+    notes?: string
+  ) => {
+    const timeStr = actualTime || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    return updateInvigilatorSchedule(id, {
+      status,
+      actual_attendance_time: status === 'Hadir' ? timeStr : null,
+      confirmed_by_admin: true,
+      notes: notes !== undefined ? notes : undefined,
+    });
+  };
+
+  const quickSubstituteInvigilator = async (
+    scheduleId: string,
+    substituteTeacherId: string,
+    reason: string
+  ) => {
+    const existing = invigilatorSchedules.find((inv) => inv.id === scheduleId);
+    const oldTeacher = teachers.find((t) => t.id === existing?.teacher_id);
+    const oldName = oldTeacher ? oldTeacher.name : 'Pengawas Terjadwal';
+
+    const note = `[Penggantian Darurat] Menggantikan ${oldName}. Alasan: ${reason || 'Berhalangan mendadak'}`;
+    const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+    return updateInvigilatorSchedule(scheduleId, {
+      teacher_id: substituteTeacherId,
+      replacement_teacher_id: existing?.teacher_id || null,
+      status: 'Hadir',
+      actual_attendance_time: timeStr,
+      confirmed_by_admin: true,
+      notes: note,
+    });
+  };
+
+  const batchConfirmAttendance = async (
+    updates: { id: string; status: 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha'; actualTime?: string; notes?: string }[]
+  ) => {
+    const updateMap = new Map(updates.map((u) => [u.id, u]));
+    const defaultTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+    setInvigilatorSchedules((prev) =>
+      prev.map((inv) => {
+        const u = updateMap.get(inv.id);
+        if (!u) return inv;
+        return {
+          ...inv,
+          status: u.status,
+          actual_attendance_time: u.status === 'Hadir' ? (u.actualTime || defaultTime) : null,
+          confirmed_by_admin: true,
+          notes: u.notes !== undefined ? u.notes : inv.notes,
+          updated_at: new Date().toISOString(),
+        };
+      })
+    );
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        for (const u of updates) {
+          await supabase.from('invigilator_schedules').update({
+            status: u.status,
+            actual_attendance_time: u.status === 'Hadir' ? (u.actualTime || defaultTime) : null,
+            confirmed_by_admin: true,
+            notes: u.notes,
+          }).eq('id', u.id);
+        }
+      }
+    }
+    return { success: true };
+  };
+
+  const deleteInvigilatorSchedule = async (id: string) => {
+    setInvigilatorSchedules((prev) => prev.filter((inv) => inv.id !== id));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const { error } = await supabase.from('invigilator_schedules').delete().eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // Seed sample full dataset (2 buildings, 45 rooms, 50 teachers)
+  const seedDemo45RoomsAndTeachers = async (): Promise<{ success: boolean; message: string }> => {
+    // 1. Ensure 2 Buildings
+    let gda = buildings.find((b) => b.code === 'GDA') || buildings[0];
+    let gdb = buildings.find((b) => b.code === 'GDB') || buildings[1];
+
+    if (!gda) {
+      gda = {
+        id: 'b0000000-0000-0000-0000-000000000001',
+        name: 'Gedung Utama A',
+        code: 'GDA',
+        address: 'Lantai 1-3 Sayap Barat',
+        notes: 'Ruang 01 - Ruang 23',
+      };
+    }
+    if (!gdb) {
+      gdb = {
+        id: 'b0000000-0000-0000-0000-000000000002',
+        name: 'Gedung Timur B',
+        code: 'GDB',
+        address: 'Lantai 1-3 Sayap Timur',
+        notes: 'Ruang 24 - Ruang 45',
+      };
+    }
+
+    // 2. Generate 45 Rooms
+    const newRooms: Room[] = [];
+    for (let i = 1; i <= 45; i++) {
+      const numStr = String(i).padStart(2, '0');
+      const buildingId = i <= 23 ? gda.id : gdb.id;
+      const bCode = i <= 23 ? 'A' : 'B';
+      const floor = i <= 15 ? 'Lantai 1' : i <= 30 ? 'Lantai 2' : 'Lantai 3';
+      newRooms.push({
+        id: `room_auto_${i}`,
+        building_id: buildingId,
+        name: `Ruang ${numStr} (Kelas ${i <= 15 ? 'VII' : i <= 30 ? 'VIII' : 'IX'}-${String.fromCharCode(65 + ((i - 1) % 5))})`,
+        code: `R-${numStr}`,
+        capacity: 32,
+        active: true,
+        notes: `Gedung ${bCode} ${floor}`,
+      });
+    }
+
+    // 3. Generate 55 Teachers with diverse schedules and availability
+    const firstNamesL = ['Ahmad', 'Budi', 'Chandra', 'Dedi', 'Eko', 'Fajar', 'Gunawan', 'Hadi', 'Irfan', 'Joko', 'Kurniawan', 'Lukman', 'Mulyadi', 'Nugroho', 'Oki', 'Prasetyo', 'Rian', 'Surya', 'Taufik', 'Untung', 'Wahyu', 'Yusuf', 'Zainal', 'Bambang', 'Hendra', 'Agus', 'Ridwan', 'Saputra'];
+    const firstNamesP = ['Ani', 'Dewi', 'Endang', 'Fitri', 'Gita', 'Haryati', 'Indah', 'Juwita', 'Kartika', 'Lestari', 'Maya', 'Nurul', 'Putri', 'Ratna', 'Siti', 'Tri', 'Utami', 'Wulan', 'Yuliana', 'Zahra', 'Sri', 'Rina', 'Mega', 'Sari', 'Kusuma', 'Ayu', 'Rini'];
+    const lastNames = ['Pratama', 'Santoso', 'Wijaya', 'Kusuma', 'Lestari', 'Hidayat', 'Saputra', 'Setiawan', 'Nugraha', 'Wibowo', 'Siregar', 'Harahap', 'Suryono', 'Utomo', 'Sudrajat', 'Purnomo', 'Mahendra', 'Firmansyah'];
+
+    const newTeachers: Teacher[] = [];
+    const allDays = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'];
+
+    for (let i = 1; i <= 55; i++) {
+      const isMale = i % 2 === 1;
+      const fName = isMale ? firstNamesL[(i - 1) % firstNamesL.length] : firstNamesP[(i - 1) % firstNamesP.length];
+      const lName = lastNames[(i * 3) % lastNames.length];
+      const gelar = isMale ? 'S.Pd.' : (i % 3 === 0 ? 'M.Pd.' : 'S.Pd.');
+      const name = `${fName} ${lName}, ${gelar}`;
+      const nip = `198${String((i % 15) + 70).padStart(2, '0')}${String((i % 12) + 1).padStart(2, '0')}15201${String(i % 10)}01${isMale ? '1' : '2'}00${String(i).padStart(2, '0')}`;
+
+      // Distribute availability days: most available 4-5 days, some 3 days
+      let avail: string[] = [];
+      if (i % 5 === 0) {
+        avail = ['Senin', 'Selasa', 'Rabu', 'Kamis'];
+      } else if (i % 7 === 0) {
+        avail = ['Senin', 'Rabu', 'Kamis', 'Jumat'];
+      } else if (i % 9 === 0) {
+        avail = ['Selasa', 'Rabu', 'Kamis', 'Jumat'];
+      } else if (i % 11 === 0) {
+        avail = ['Senin', 'Selasa', 'Kamis', 'Jumat'];
+      } else {
+        avail = [...allDays];
+      }
+
+      newTeachers.push({
+        id: `teacher_auto_${i}`,
+        name,
+        gender: isMale ? 'Laki-laki' : 'Perempuan',
+        employee_number: nip,
+        invigilator_code: `P${String(i).padStart(2, '0')}`,
+        active: true,
+        available_days: avail,
+        notes: `Guru Pengawas SMP Bhinneka Tunggal Ika (Kode: P${String(i).padStart(2, '0')})`,
+      });
+    }
+
+    setBuildings([gda, gdb]);
+    setRooms(newRooms);
+    setTeachers(newTeachers);
+
+    return {
+      success: true,
+      message: `Berhasil menyiapkan data: 2 Gedung, 45 Ruang aktif (GDA & GDB), dan 55 Guru siap bertugas mengawas!`,
+    };
+  };
+
+  // ==================== SETTINGS ====================
+  const updateSettings = async (updates: Partial<Settings>) => {
+    setSettings((prev) => ({ ...prev, ...updates }));
+
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase && settings.id) {
+        const { error } = await supabase.from('settings').update(updates).eq('id', settings.id);
+        if (error) return { success: false, error: error.message };
+      }
+    }
+    return { success: true };
+  };
+
+  // ==================== USER & ROLE MANAGEMENT ====================
+  const addUser = async (payload: Omit<AppUser, 'id' | 'created_at'>) => {
+    const newUser: AppUser = {
+      ...payload,
+      id: crypto.randomUUID ? crypto.randomUUID() : `u_${Date.now()}`,
+      created_at: new Date().toISOString(),
+    };
+    setUsers((prev) => [newUser, ...prev]);
+    return { success: true };
+  };
+
+  const updateUser = async (id: string, updates: Partial<AppUser>) => {
+    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
+    return { success: true };
+  };
+
+  const deleteUser = async (id: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== id));
+    return { success: true };
+  };
+
+  // ==================== BACKUP & RESET ====================
+  const backupData = () => {
+    return {
+      backup_version: '2.0',
+      exported_at: new Date().toISOString(),
+      school_name: settings.school_name,
+      academic_year: settings.academic_year,
+      semester: settings.semester,
+      exam_name: settings.exam_name,
+      metrics: {
+        total_teachers: teachers.length,
+        active_teachers: teachers.filter((t) => t.active).length,
+        total_buildings: buildings.length,
+        total_rooms: rooms.length,
+        active_rooms: rooms.filter((r) => r.active).length,
+        total_subjects: subjects.length,
+        total_exam_schedules: examSchedules.length,
+        total_invigilator_assignments: invigilatorSchedules.filter((i) => !!i.teacher_id).length,
+        total_conflicts: conflicts.length,
+      },
+      data: {
+        settings,
+        users,
+        buildings,
+        rooms,
+        teachers,
+        subjects,
+        exam_schedules: examSchedules,
+        invigilator_schedules: invigilatorSchedules,
+      },
+    };
+  };
+
+  const resetData = async (
+    mode: 'INVIGILATORS_ONLY' | 'EXAMS_AND_INVIGILATORS' | 'RESET_TO_DEFAULT' | 'ALL_DATA'
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      if (mode === 'INVIGILATORS_ONLY') {
+        setInvigilatorSchedules([]);
+        if (isSupabaseConfigured()) {
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('invigilator_schedules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          }
+        }
+        return { success: true, message: 'Seluruh jadwal penugasan pengawas ujian berhasil di-reset.' };
+      }
+
+      if (mode === 'EXAMS_AND_INVIGILATORS') {
+        setInvigilatorSchedules([]);
+        setExamSchedules([]);
+        if (isSupabaseConfigured()) {
+          const supabase = getSupabase();
+          if (supabase) {
+            await supabase.from('invigilator_schedules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            await supabase.from('exam_schedules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          }
+        }
+        return { success: true, message: 'Seluruh jadwal ujian & jadwal penugasan pengawas berhasil di-reset.' };
+      }
+
+      if (mode === 'RESET_TO_DEFAULT') {
+        setTeachers(INITIAL_TEACHERS);
+        setBuildings(INITIAL_BUILDINGS);
+        setRooms(INITIAL_ROOMS);
+        setSubjects(INITIAL_SUBJECTS);
+        setExamSchedules(INITIAL_EXAM_SCHEDULES);
+        setInvigilatorSchedules(INITIAL_INVIGILATOR_SCHEDULES);
+        setSettings(INITIAL_SETTINGS);
+        return { success: true, message: 'Sistem berhasil dikembalikan ke dataset default sekolah.' };
+      }
+
+      if (mode === 'ALL_DATA') {
+        setTeachers([]);
+        setBuildings([]);
+        setRooms([]);
+        setSubjects([]);
+        setExamSchedules([]);
+        setInvigilatorSchedules([]);
+        return { success: true, message: 'Seluruh data operasional ujian telah dikosongkan.' };
+      }
+
+      return { success: false, message: 'Mode reset tidak dikenali.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Gagal menjalankan reset data.' };
+    }
+  };
+
+  return (
+    <DataContext.Provider
+      value={{
+        loading,
+        error,
+        teachers,
+        buildings,
+        rooms,
+        subjects,
+        examSchedules,
+        invigilatorSchedules,
+        settings,
+        users,
+        conflicts,
+        emptyScheduleSlotsCount,
+        scheduledInvigilatorsCount,
+        refreshAll,
+        addTeacher,
+        addTeachersBatch,
+        updateTeacher,
+        deleteTeacher,
+        addBuilding,
+        addBuildingsBatch,
+        updateBuilding,
+        deleteBuilding,
+        addRoom,
+        addRoomsBatch,
+        updateRoom,
+        deleteRoom,
+        addSubject,
+        addSubjectsBatch,
+        updateSubject,
+        deleteSubject,
+        addExamSchedule,
+        addExamSchedulesBatch,
+        updateExamSchedule,
+        deleteExamSchedule,
+        addInvigilatorSchedule,
+        addInvigilatorSchedulesBatch,
+        clearInvigilatorSchedules,
+        quickUpdateInvigilatorStatus,
+        quickReplaceInvigilator,
+        quickConfirmAttendance,
+        quickSubstituteInvigilator,
+        batchConfirmAttendance,
+        updateInvigilatorSchedule,
+        deleteInvigilatorSchedule,
+        seedDemo45RoomsAndTeachers,
+        updateSettings,
+        addUser,
+        updateUser,
+        deleteUser,
+        backupData,
+        resetData,
+      }}
+    >
+      {children}
+    </DataContext.Provider>
+  );
+};
+
+export const useData = () => {
+  const context = useContext(DataContext);
+  if (!context) {
+    throw new Error('useData must be used within a DataProvider');
+  }
+  return context;
+};
