@@ -65,6 +65,7 @@ export const InvigilatorGenerateModal: React.FC<InvigilatorGenerateModalProps> =
   const [avoidConsecutiveSameRoom, setAvoidConsecutiveSameRoom] = useState<boolean>(false);
   const [noBuildingHopping, setNoBuildingHopping] = useState<boolean>(true);
   const [consistentSessionsSameRoom, setConsistentSessionsSameRoom] = useState<boolean>(true);
+  const [rotateRoomsDaily, setRotateRoomsDaily] = useState<boolean>(true);
   const [assignReserve, setAssignReserve] = useState<boolean>(false);
   const [reserveCount, setReserveCount] = useState<number>(1);
 
@@ -116,6 +117,7 @@ export const InvigilatorGenerateModal: React.FC<InvigilatorGenerateModalProps> =
       avoidConsecutiveSameRoom,
       noBuildingHopping,
       consistentSessionsSameRoom,
+      rotateRoomsDaily,
       assignReserve,
       reserveCountPerSession: reserveCount,
     };
@@ -492,6 +494,29 @@ export const InvigilatorGenerateModal: React.FC<InvigilatorGenerateModalProps> =
                     </span>
                   </div>
                 </label>
+
+                {/* Opsi 7: Setiap Hari Mengawasi Ruang Berbeda (Rotasi Harian) */}
+                <label className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={rotateRoomsDaily}
+                    onChange={(e) => setRotateRoomsDaily(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Setiap Hari Mengawasi Ruang Berbeda (Rotasi Harian)
+                      </span>
+                      <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[10px] font-semibold">
+                        Rotasi Harian
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">
+                      Guru akan ditugaskan di ruangan yang berbeda pada setiap hari ujian (menghindari mengawas di ruangan yang sama pada hari yang berbeda).
+                    </span>
+                  </div>
+                </label>
               </div>
 
               {/* Opsi Cadangan */}
@@ -642,6 +667,36 @@ export const InvigilatorGenerateModal: React.FC<InvigilatorGenerateModalProps> =
                   {previewResult.minLoadedTeacher?.count || 0} Tugas
                 </span>
               </div>
+            </div>
+
+            {/* Aturan Aktif Digunakan */}
+            <div className="flex flex-wrap items-center gap-1.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              <span className="text-[11px] font-bold text-slate-600 mr-1">Aturan Aktif:</span>
+              {rotateRoomsDaily && (
+                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-md text-[10px] font-bold">
+                  ✓ Rotasi Ruang Harian
+                </span>
+              )}
+              {consistentSessionsSameRoom && (
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[10px] font-bold">
+                  ✓ Konsisten Sesi Sama
+                </span>
+              )}
+              {noBuildingHopping && (
+                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md text-[10px] font-bold">
+                  ✓ Tanpa Pindah Gedung
+                </span>
+              )}
+              {balanceWorkload && (
+                <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded-md text-[10px] font-bold">
+                  ✓ Seimbang Beban
+                </span>
+              )}
+              {respectAvailability && (
+                <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded-md text-[10px] font-bold">
+                  ✓ Ketersediaan Hari
+                </span>
+              )}
             </div>
 
             {/* Warnings or Shortages */}

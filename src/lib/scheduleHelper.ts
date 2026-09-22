@@ -1,3 +1,5 @@
+import { Subject, ExamSchedule } from '../types/database';
+
 export const INDONESIAN_DAYS = [
   'Minggu',
   'Senin',
@@ -215,5 +217,109 @@ export const calculateScheduleMetrics = (
     totalFilled,
     totalMissing,
     status,
+  };
+};
+
+/**
+ * Mendapatkan daftar tingkat kelas yang dicentang pada mata pelajaran.
+ * Jika tidak ditentukan atau kosong, default ke ['7', '8', '9'] (berlaku untuk semua tingkat).
+ */
+export const getSubjectGradeLevels = (subject?: Subject | null): string[] => {
+  if (!subject) return ['7', '8', '9'];
+  if (subject.grade_levels && subject.grade_levels.length > 0) {
+    return subject.grade_levels;
+  }
+  if (subject.grade_level) {
+    return [String(subject.grade_level)];
+  }
+  return ['7', '8', '9'];
+};
+
+/**
+ * Format teks tingkat kelas untuk tampilan badge, misalnya "Kelas 7, 8" atau "Semua Tingkat (7, 8, 9)"
+ */
+export const formatGradeLevelsLabel = (grades: string[]): string => {
+  if (
+    !grades ||
+    grades.length === 0 ||
+    (grades.includes('7') && grades.includes('8') && grades.includes('9'))
+  ) {
+    return 'Semua Tingkat (7, 8, 9)';
+  }
+  return `Kelas ${[...grades].sort().join(', ')}`;
+};
+
+/**
+ * Mendapatkan daftar irisan tingkatan kelas yang sama antara dua mata pelajaran
+ */
+export const getOverlappingGrades = (
+  subjectA?: Subject | null,
+  subjectB?: Subject | null
+): string[] => {
+  const gradesA = getSubjectGradeLevels(subjectA);
+  const gradesB = getSubjectGradeLevels(subjectB);
+  return gradesA.filter((g) => gradesB.includes(g));
+};
+
+/**
+ * Memeriksa apakah dua jadwal ujian berpotensi bentrok.
+ * Bentrok HANYA terjadi bila:
+ * 1. Tanggal ujian sama
+ * 2. Sesi sama ATAU jam ujian beririsan
+ * 3. Memiliki irisan tingkat kelas yang sama (berbagi murid kelas yang sama).
+ *
+ * Catatan penting (Sesuai Aturan Sistem):
+ * Jika Sesi 1 diisi oleh Prakarya (Kelas 7, 8) dan Seni Budaya (Kelas 9),
+ * mereka TIDAK BENTROK karena tingkatan kelasnya berbeda (tidak ada irisan murid).
+ */
+export const checkExamScheduleConflict = (
+  scheduleA: ExamSchedule,
+  scheduleB: ExamSchedule,
+  subjectMap?: Map<string, Subject> | Record<string, Subject> | Subject[]
+): { isConflict: boolean; conflictingGrades: string[]; sameSessionOrTime: boolean } => {
+  if (scheduleA.id === scheduleB.id) {
+    return { isConflict: false, conflictingGrades: [], sameSessionOrTime: false };
+  }
+  if (scheduleA.exam_date !== scheduleB.exam_date) {
+    return { isConflict: false, conflictingGrades: [], sameSessionOrTime: false };
+  }
+
+  const sameSession =
+    normalizeSession(scheduleA.session).toLowerCase() ===
+    normalizeSession(scheduleB.session).toLowerCase();
+  const timeOverlap = isTimeOverlap(
+    scheduleA.start_time,
+    scheduleA.end_time,
+    scheduleB.start_time,
+    scheduleB.end_time
+  );
+
+  if (!sameSession && !timeOverlap) {
+    return { isConflict: false, conflictingGrades: [], sameSessionOrTime: false };
+  }
+
+  // Cari subject untuk masing-masing jadwal
+  let subA: Subject | undefined = scheduleA.subject;
+  let subB: Subject | undefined = scheduleB.subject;
+
+  const findSubject = (subId: string): Subject | undefined => {
+    if (!subjectMap) return undefined;
+    if (Array.isArray(subjectMap)) {
+      return subjectMap.find((s) => s.id === subId);
+    }
+    if (subjectMap instanceof Map) {
+      return subjectMap.get(subId);
+    }
+    return (subjectMap as Record<string, Subject>)[subId];
+  };
+
+  if (!subA) subA = findSubject(scheduleA.subject_id);
+  if (!subB) subB = findSubject(scheduleB.subject_id);
+
+  const overlappingGrades = getOverlappingGrades(subA, subB);
+  return {
+    isConflict: overlappingGrades.length > 0,
+    conflictingGrades: overlappingGrades,
+    sameSessionOrTime: true,
   };
 };

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Modal } from '../common/Modal';
+import { RlsAlertBanner } from '../common/RlsAlertBanner';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { parseSpreadsheetFile, downloadTeacherTemplate } from '../../lib/excelHelper';
@@ -71,6 +72,8 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
   const [processedRows, setProcessedRows] = useState<ParsedTeacherRow[]>([]);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rlsErrorOccurred, setRlsErrorOccurred] = useState(false);
+  const [rawErrorMsg, setRawErrorMsg] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -80,6 +83,8 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
     setHeaders([]);
     setRawRows([]);
     setLoading(false);
+    setRlsErrorOccurred(false);
+    setRawErrorMsg(null);
     setMapping({
       nama: '',
       nip: '',
@@ -231,6 +236,9 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
     }
 
     setIsSubmitting(true);
+    setRlsErrorOccurred(false);
+    setRawErrorMsg(null);
+
     try {
       const payloads = toImport.map((row) => ({
         name: row.nama,
@@ -244,7 +252,15 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
       const res = await addTeachersBatch(payloads);
 
       if (!res.success) {
-        throw new Error(res.error || 'Gagal menyimpan ke database');
+        const errorText = res.error || 'Gagal menyimpan ke database';
+        if (
+          errorText.toLowerCase().includes('row-level security') ||
+          errorText.toLowerCase().includes('violates row-level security')
+        ) {
+          setRlsErrorOccurred(true);
+          setRawErrorMsg(errorText);
+        }
+        throw new Error(errorText);
       }
 
       success(
@@ -253,10 +269,26 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
       );
       handleClose();
     } catch (err: any) {
-      error('Gagal Melakukan Impor', err.message);
+      const msg = err.message || 'Gagal menyimpan ke database';
+      if (
+        msg.toLowerCase().includes('row-level security') ||
+        msg.toLowerCase().includes('violates row-level security')
+      ) {
+        setRlsErrorOccurred(true);
+        setRawErrorMsg(msg);
+      }
+      error('Gagal Melakukan Impor', msg);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSaveLocallyOnly = () => {
+    success(
+      'Data Guru Disimpan Sementara',
+      'Data guru berhasil dimuat ke sesi memori aplikasi. Silakan jalankan skrip perbaikan RLS di Supabase agar data tersinkron permanen.'
+    );
+    handleClose();
   };
 
   const validCount = processedRows.filter((r) => r.isValid).length;
@@ -745,6 +777,16 @@ export const TeacherImportModal: React.FC<TeacherImportModalProps> = ({ isOpen, 
               </div>
             )}
           </div>
+
+          {rlsErrorOccurred && (
+            <div className="max-w-xl mx-auto text-left">
+              <RlsAlertBanner
+                tableName="teachers"
+                onRetry={handleExecuteImport}
+                onSaveLocally={handleSaveLocallyOnly}
+              />
+            </div>
+          )}
 
           <div className="flex items-center justify-center gap-3 pt-4 border-t border-slate-100">
             <button

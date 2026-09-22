@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { Teacher, ExamSchedule } from '../../types/database';
-import { exportTeacherWorkloadData, TeacherWorkloadStat } from '../../lib/invigilatorHelper';
+import { exportTeacherWorkloadData, TeacherWorkloadStat, isPanitiaTeacher } from '../../lib/invigilatorHelper';
 
 interface TeacherWorkloadTabProps {
   onSelectTeacherForFilter?: (teacherId: string) => void;
@@ -61,6 +61,8 @@ export const TeacherWorkloadTab: React.FC<TeacherWorkloadTabProps> = ({
           assignedDays,
           assignedSessions,
           roles,
+          isPanitia: isPanitiaTeacher(t),
+          notes: t.notes,
         };
       })
       .sort((a, b) => b.totalAssigned - a.totalAssigned || a.teacherName.localeCompare(b.teacherName));
@@ -277,9 +279,16 @@ export const TeacherWorkloadTab: React.FC<TeacherWorkloadTabProps> = ({
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           <div>
-                            <span className="font-bold text-slate-900 block">
-                              {stat.teacherName}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900">
+                                {stat.teacherName}
+                              </span>
+                              {stat.isPanitia && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                                  ⭐ Panitia (Standby)
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[11px] text-slate-500 font-mono">
                               NIP: {stat.employeeNumber || '-'} &bull; {stat.gender}
                             </span>
@@ -288,17 +297,26 @@ export const TeacherWorkloadTab: React.FC<TeacherWorkloadTabProps> = ({
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-black ${
-                            stat.totalAssigned >= 4
-                              ? 'bg-amber-100 text-amber-800'
-                              : stat.totalAssigned > 0
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {stat.totalAssigned} Sesi
-                        </span>
+                        {stat.isPanitia && stat.totalAssigned === 0 ? (
+                          <span
+                            className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                            title="Disiagakan sebagai pengawas pengganti darurat setiap hari"
+                          >
+                            0 Sesi (Standby)
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-black ${
+                              stat.totalAssigned >= 4
+                                ? 'bg-amber-100 text-amber-800'
+                                : stat.totalAssigned > 0
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {stat.totalAssigned} Sesi
+                          </span>
+                        )}
                       </td>
 
                       <td className="py-3 px-4">
@@ -316,26 +334,37 @@ export const TeacherWorkloadTab: React.FC<TeacherWorkloadTabProps> = ({
                               </span>
                             ))}
                           </div>
+                        ) : stat.isPanitia ? (
+                          <span className="text-amber-800 text-[11px] font-medium flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Standby Opsi Pengganti
+                          </span>
                         ) : (
                           <span className="text-slate-400 italic text-[11px]">Belum bertugas</span>
                         )}
                       </td>
 
                       <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1">
-                          {stat.availableDays.length > 0 ? (
-                            stat.availableDays.map((d) => (
-                              <span
-                                key={d}
-                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              >
-                                {d}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-slate-400 text-[10px] italic">Semua hari</span>
-                          )}
-                        </div>
+                        {stat.isPanitia ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Tersedia Setiap Hari (Standby)
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {stat.availableDays.length > 0 ? (
+                              stat.availableDays.map((d) => (
+                                <span
+                                  key={d}
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                >
+                                  {d}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-slate-400 text-[10px] italic">Semua hari</span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="py-3 px-4 text-right">

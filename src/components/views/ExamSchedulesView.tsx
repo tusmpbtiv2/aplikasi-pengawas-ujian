@@ -10,6 +10,9 @@ import {
   calculateScheduleMetrics,
   isTimeOverlap,
   normalizeSession,
+  getSubjectGradeLevels,
+  formatGradeLevelsLabel,
+  checkExamScheduleConflict,
 } from '../../lib/scheduleHelper';
 
 // Subcomponents
@@ -75,6 +78,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
   const [filterDay, setFilterDay] = useState('');
+  const [filterGrade, setFilterGrade] = useState<'ALL' | '7' | '8' | '9'>('ALL');
   const [filterSubjectId, setFilterSubjectId] = useState('');
   const [filterSession, setFilterSession] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -158,7 +162,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
       });
     }
 
-    // 3. Check for exam schedule time/session conflicts
+    // 3. Check for REAL exam schedule conflicts (same date & overlapping session/time AND overlapping grade levels)
     const dateMap = new Map<string, ExamSchedule[]>();
     examSchedules.forEach((es) => {
       const list = dateMap.get(es.exam_date) || [];
@@ -166,36 +170,39 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
       dateMap.set(es.exam_date, list);
     });
 
-    let conflictCount = 0;
+    const realConflicts: {
+      scheduleA: ExamSchedule;
+      scheduleB: ExamSchedule;
+      conflictingGrades: string[];
+    }[] = [];
+
     dateMap.forEach((schedulesOnDate) => {
       if (schedulesOnDate.length > 1) {
         for (let i = 0; i < schedulesOnDate.length; i++) {
           for (let j = i + 1; j < schedulesOnDate.length; j++) {
             const a = schedulesOnDate[i];
             const b = schedulesOnDate[j];
-            const sameSession =
-              normalizeSession(a.session).toLowerCase() ===
-              normalizeSession(b.session).toLowerCase();
-            const timeOverlap = isTimeOverlap(
-              a.start_time,
-              a.end_time,
-              b.start_time,
-              b.end_time
-            );
-
-            if (sameSession || timeOverlap) {
-              conflictCount++;
+            const check = checkExamScheduleConflict(a, b, subjects);
+            if (check.isConflict) {
+              realConflicts.push({
+                scheduleA: a,
+                scheduleB: b,
+                conflictingGrades: check.conflictingGrades,
+              });
             }
           }
         }
       }
     });
 
-    if (conflictCount > 0) {
+    if (realConflicts.length > 0) {
+      const gradesSummary = Array.from(
+        new Set(realConflicts.flatMap((c) => c.conflictingGrades))
+      ).sort();
       warnings.push({
         id: 'schedule_collision',
         type: 'warning',
-        message: `Peringatan: Terdapat ${conflictCount} potensi bentrok jadwal ujian pada tanggal atau rentang jam yang sama. Silakan periksa daftar jadwal.`,
+        message: `Peringatan: Terdapat ${realConflicts.length} potensi bentrok jadwal ujian pada tingkatan kelas yang sama (${gradesSummary.map((g) => `Kelas ${g}`).join(', ')}). Catatan: Jadwal dengan tingkatan kelas berbeda (seperti Kelas 7, 8 vs Kelas 9) di sesi yang sama diizinkan berjalan paralel.`,
       });
     }
 
@@ -215,6 +222,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
     needsPerSession,
     invigilatorsPerRoom,
     examSchedules,
+    subjects,
     summaryMetrics.totalMissing,
   ]);
 
@@ -240,6 +248,13 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
       // Filter Day
       const matchDay = !filterDay || es.day_name === filterDay;
 
+      // Filter Grade Level (Tingkat Kelas)
+      let matchGrade = true;
+      if (filterGrade !== 'ALL') {
+        const grades = getSubjectGradeLevels(sub);
+        matchGrade = grades.includes(filterGrade);
+      }
+
       // Filter Subject
       const matchSubject = !filterSubjectId || es.subject_id === filterSubjectId;
 
@@ -263,7 +278,15 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
         matchStatus = metrics.status === filterStatus;
       }
 
-      return matchSearch && matchDate && matchDay && matchSubject && matchSession && matchStatus;
+      return (
+        matchSearch &&
+        matchDate &&
+        matchDay &&
+        matchGrade &&
+        matchSubject &&
+        matchSession &&
+        matchStatus
+      );
     });
   }, [
     examSchedules,
@@ -271,6 +294,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
     searchTerm,
     filterDate,
     filterDay,
+    filterGrade,
     filterSubjectId,
     filterSession,
     filterStatus,
@@ -328,6 +352,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
     setSearchTerm('');
     setFilterDate('');
     setFilterDay('');
+    setFilterGrade('ALL');
     setFilterSubjectId('');
     setFilterSession('');
     setFilterStatus('');
@@ -338,6 +363,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
     Boolean(searchTerm) ||
     Boolean(filterDate) ||
     Boolean(filterDay) ||
+    filterGrade !== 'ALL' ||
     Boolean(filterSubjectId) ||
     Boolean(filterSession) ||
     Boolean(filterStatus);
@@ -652,7 +678,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
         </div>
 
         {/* Filters Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 pt-1">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
           {/* Filter Tanggal */}
           <div>
             <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
@@ -697,6 +723,26 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
             </select>
           </div>
 
+          {/* Filter Tingkat Kelas */}
+          <div>
+            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
+              Tingkat Kelas
+            </label>
+            <select
+              value={filterGrade}
+              onChange={(e) => {
+                setFilterGrade(e.target.value as 'ALL' | '7' | '8' | '9');
+                setCurrentPage(1);
+              }}
+              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500 font-semibold text-indigo-700"
+            >
+              <option value="ALL">Semua Tingkat</option>
+              <option value="7">Kelas 7</option>
+              <option value="8">Kelas 8</option>
+              <option value="9">Kelas 9</option>
+            </select>
+          </div>
+
           {/* Filter Mapel */}
           <div>
             <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
@@ -713,7 +759,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
               <option value="">Semua Mapel</option>
               {subjects.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} ({s.code})
+                  {s.name} ({s.code}) - {formatGradeLevelsLabel(getSubjectGradeLevels(s))}
                 </option>
               ))}
             </select>
@@ -818,6 +864,8 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
                 <tbody className="divide-y divide-slate-100">
                   {paginatedSchedules.map((schedule) => {
                     const subject = subjects.find((s) => s.id === schedule.subject_id);
+                    const subjectGrades = getSubjectGradeLevels(subject);
+
                     const filled = invigilatorSchedules.filter(
                       (inv) => inv.exam_schedule_id === schedule.id && !!inv.teacher_id
                     ).length;
@@ -827,6 +875,31 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
                       invigilatorsPerRoom,
                       filled
                     );
+
+                    // Check other concurrent schedules in the same date/session
+                    const concurrentSchedules = examSchedules.filter(
+                      (other) =>
+                        other.id !== schedule.id &&
+                        other.exam_date === schedule.exam_date &&
+                        (normalizeSession(other.session).toLowerCase() ===
+                          normalizeSession(schedule.session).toLowerCase() ||
+                          isTimeOverlap(
+                            schedule.start_time,
+                            schedule.end_time,
+                            other.start_time,
+                            other.end_time
+                          ))
+                    );
+
+                    const hasConflict = concurrentSchedules.some(
+                      (other) => checkExamScheduleConflict(schedule, other, subjects).isConflict
+                    );
+                    const hasParallel =
+                      !hasConflict &&
+                      concurrentSchedules.some(
+                        (other) =>
+                          !checkExamScheduleConflict(schedule, other, subjects).isConflict
+                      );
 
                     return (
                       <tr
@@ -853,12 +926,35 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
                         {/* Mata Pelajaran */}
                         <td className="py-3 px-4">
                           <div>
-                            <p className="font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">
-                              {subject?.name || 'Mata Pelajaran'}
-                            </p>
-                            <span className="text-[11px] font-mono text-slate-400">
-                              {subject?.code || '-'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                {subject?.name || 'Mata Pelajaran'}
+                              </p>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                {formatGradeLevelsLabel(subjectGrades)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[11px] font-mono text-slate-400">
+                                {subject?.code || '-'}
+                              </span>
+                              {hasParallel && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  title="Berjalan bersamaan di sesi ini untuk kelas berbeda tanpa bentrok"
+                                >
+                                  Paralel Sesi
+                                </span>
+                              )}
+                              {hasConflict && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200"
+                                  title="Ada bentrok jadwal pada tingkatan kelas yang sama"
+                                >
+                                  Bentrok Kelas
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
 

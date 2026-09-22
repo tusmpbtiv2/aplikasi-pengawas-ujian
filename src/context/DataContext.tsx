@@ -11,6 +11,7 @@ import {
   ConflictDetail,
   AppUser,
 } from '../types/database';
+import { isPanitiaTeacher } from '../lib/invigilatorHelper';
 
 // Initial default seed data for immediate demonstration and offline fallback
 const INITIAL_SETTINGS: Settings = {
@@ -485,7 +486,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const conflicts = useMemo<ConflictDetail[]>(() => {
     const list: ConflictDetail[] = [];
 
-    // 1. Double booking: Teacher assigned to multiple rooms at the same date & time/session
+    // 1. Double booking: Teacher assigned to multiple DIFFERENT rooms at the same date & time/session
     const teacherSlotMap = new Map<string, InvigilatorSchedule[]>();
 
     invigilatorSchedules.forEach((inv) => {
@@ -500,18 +501,22 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     teacherSlotMap.forEach((assignments) => {
-      if (assignments.length > 1) {
+      // Konflik HANYA jika guru ditugaskan di lebih dari 1 ruangan berbeda pada sesi yang sama.
+      // Jika di ruangan yang sama (misal ada mapel Prakarya kls 7-8 dan Seni Budaya kls 9 di sesi 2),
+      // guru yang sama cukup mengawasi ruang tersebut tanpa dianggap bentrok jadwal.
+      const distinctRoomIds = Array.from(new Set(assignments.map((a) => a.room_id)));
+      if (distinctRoomIds.length > 1) {
         const teacher = teachers.find((t) => t.id === assignments[0].teacher_id);
         const exam = examSchedules.find((es) => es.id === assignments[0].exam_schedule_id);
-        const roomNames = assignments
-          .map((a) => rooms.find((r) => r.id === a.room_id)?.name || 'Ruang')
+        const roomNames = distinctRoomIds
+          .map((rId) => rooms.find((r) => r.id === rId)?.name || 'Ruang')
           .join(', ');
 
         list.push({
           id: `db_${assignments[0].id}`,
           type: 'DOUBLE_BOOKING',
           severity: 'ERROR',
-          description: `Guru ${teacher?.name || 'Pengawas'} terjadwal mengawas ganda di beberapa ruang (${roomNames}) pada ${exam?.exam_date} (${exam?.session}).`,
+          description: `Guru ${teacher?.name || 'Pengawas'} terjadwal mengawas ganda di beberapa ruang berbeda (${roomNames}) pada ${exam?.exam_date} (${exam?.session}).`,
           exam_schedule_id: exam?.id,
           teacher_id: teacher?.id,
         });
@@ -525,7 +530,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const exam = examSchedules.find((es) => es.id === inv.exam_schedule_id);
       if (!teacher || !exam) return;
 
-      if (teacher.available_days && !teacher.available_days.includes(exam.day_name)) {
+      // Panitia teachers are standby on campus every day, so they are not flagged as unavailable
+      if (!isPanitiaTeacher(teacher) && teacher.available_days && !teacher.available_days.includes(exam.day_name)) {
         list.push({
           id: `unavail_${inv.id}`,
           type: 'UNAVAILABLE_DAY',
@@ -537,20 +543,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    // 3. Unassigned rooms: Active rooms that do not have an invigilator for an exam schedule
+    // 3. Unassigned rooms: Active rooms that do not have an invigilator for a session
+    // Dikelompokkan per sesi (tanggal + sesi) agar sesi dengan lebih dari 1 mapel (misal Prakarya & Seni Budaya)
+    // tidak menghasilkan notifikasi ruangan kosong ganda selama ruangan tersebut sudah memiliki pengawas.
+    const sessionGroupMap = new Map<string, ExamSchedule[]>();
     examSchedules.forEach((exam) => {
+      const sKey = `${exam.exam_date}_${exam.session}`;
+      if (!sessionGroupMap.has(sKey)) sessionGroupMap.set(sKey, []);
+      sessionGroupMap.get(sKey)!.push(exam);
+    });
+
+    sessionGroupMap.forEach((examsInSession, sKey) => {
+      const firstExam = examsInSession[0];
+      const examIdsInSession = new Set(examsInSession.map((e) => e.id));
       const activeRooms = rooms.filter((r) => r.active);
+
       activeRooms.forEach((room) => {
         const hasInvigilator = invigilatorSchedules.some(
-          (inv) => inv.exam_schedule_id === exam.id && inv.room_id === room.id && inv.teacher_id
+          (inv) => examIdsInSession.has(inv.exam_schedule_id) && inv.room_id === room.id && !!inv.teacher_id
         );
         if (!hasInvigilator) {
           list.push({
-            id: `empty_${exam.id}_${room.id}`,
+            id: `empty_${sKey}_${room.id}`,
             type: 'UNASSIGNED_ROOM',
             severity: 'WARNING',
-            description: `Ruang ${room.name} (${room.code}) pada jadwal ujian ${exam.exam_date} (${exam.session}) belum memiliki guru pengawas.`,
-            exam_schedule_id: exam.id,
+            description: `Ruang ${room.name} (${room.code}) pada sesi ujian ${firstExam.exam_date} (${firstExam.session}) belum memiliki guru pengawas.`,
+            exam_schedule_id: firstExam.id,
             room_id: room.id,
           });
         }
@@ -1021,10 +1039,40 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     newTeacherId: string | null,
     oldStatus: 'Dijadwalkan' | 'Hadir' | 'Izin' | 'Sakit' | 'Digantikan' | 'Alpha' = 'Digantikan'
   ) => {
-    return updateInvigilatorSchedule(id, {
-      teacher_id: newTeacherId,
-      status: newTeacherId ? 'Dijadwalkan' : oldStatus,
-    });
+    const target = invigilatorSchedules.find((inv) => inv.id === id);
+    if (!target) {
+      return updateInvigilatorSchedule(id, {
+        teacher_id: newTeacherId,
+        status: newTeacherId ? 'Dijadwalkan' : oldStatus,
+      });
+    }
+
+    const targetExam = examSchedules.find((e) => e.id === target.exam_schedule_id);
+    if (!targetExam) {
+      return updateInvigilatorSchedule(id, {
+        teacher_id: newTeacherId,
+        status: newTeacherId ? 'Dijadwalkan' : oldStatus,
+      });
+    }
+
+    // Temukan seluruh jadwal ujian bersamaan di tanggal & sesi yang sama untuk ruangan & peran ini
+    const siblingExams = examSchedules.filter(
+      (e) => e.exam_date === targetExam.exam_date && e.session === targetExam.session
+    );
+    const siblingExamIds = new Set(siblingExams.map((e) => e.id));
+
+    const matchingAssignments = invigilatorSchedules.filter(
+      (inv) => siblingExamIds.has(inv.exam_schedule_id) && inv.room_id === target.room_id && inv.role === target.role
+    );
+
+    for (const assignment of matchingAssignments) {
+      await updateInvigilatorSchedule(assignment.id, {
+        teacher_id: newTeacherId,
+        status: newTeacherId ? 'Dijadwalkan' : oldStatus,
+      });
+    }
+
+    return { success: true };
   };
 
   const quickConfirmAttendance = async (
@@ -1034,12 +1082,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     notes?: string
   ) => {
     const timeStr = actualTime || new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-    return updateInvigilatorSchedule(id, {
-      status,
-      actual_attendance_time: status === 'Hadir' ? timeStr : null,
-      confirmed_by_admin: true,
-      notes: notes !== undefined ? notes : undefined,
-    });
+    const target = invigilatorSchedules.find((inv) => inv.id === id);
+    if (!target) {
+      return updateInvigilatorSchedule(id, {
+        status,
+        actual_attendance_time: status === 'Hadir' ? timeStr : null,
+        confirmed_by_admin: true,
+        notes: notes !== undefined ? notes : undefined,
+      });
+    }
+
+    const targetExam = examSchedules.find((e) => e.id === target.exam_schedule_id);
+    if (!targetExam) {
+      return updateInvigilatorSchedule(id, {
+        status,
+        actual_attendance_time: status === 'Hadir' ? timeStr : null,
+        confirmed_by_admin: true,
+        notes: notes !== undefined ? notes : undefined,
+      });
+    }
+
+    const siblingExams = examSchedules.filter(
+      (e) => e.exam_date === targetExam.exam_date && e.session === targetExam.session
+    );
+    const siblingExamIds = new Set(siblingExams.map((e) => e.id));
+
+    const matchingAssignments = invigilatorSchedules.filter(
+      (inv) => siblingExamIds.has(inv.exam_schedule_id) && inv.room_id === target.room_id && inv.role === target.role
+    );
+
+    for (const assignment of matchingAssignments) {
+      await updateInvigilatorSchedule(assignment.id, {
+        status,
+        actual_attendance_time: status === 'Hadir' ? timeStr : null,
+        confirmed_by_admin: true,
+        notes: notes !== undefined ? notes : undefined,
+      });
+    }
+
+    return { success: true };
   };
 
   const quickSubstituteInvigilator = async (
@@ -1054,14 +1135,50 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const note = `[Penggantian Darurat] Menggantikan ${oldName}. Alasan: ${reason || 'Berhalangan mendadak'}`;
     const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-    return updateInvigilatorSchedule(scheduleId, {
-      teacher_id: substituteTeacherId,
-      replacement_teacher_id: existing?.teacher_id || null,
-      status: 'Hadir',
-      actual_attendance_time: timeStr,
-      confirmed_by_admin: true,
-      notes: note,
-    });
+    if (!existing) {
+      return updateInvigilatorSchedule(scheduleId, {
+        teacher_id: substituteTeacherId,
+        replacement_teacher_id: null,
+        status: 'Hadir',
+        actual_attendance_time: timeStr,
+        confirmed_by_admin: true,
+        notes: note,
+      });
+    }
+
+    const targetExam = examSchedules.find((e) => e.id === existing.exam_schedule_id);
+    if (!targetExam) {
+      return updateInvigilatorSchedule(scheduleId, {
+        teacher_id: substituteTeacherId,
+        replacement_teacher_id: existing.teacher_id || null,
+        status: 'Hadir',
+        actual_attendance_time: timeStr,
+        confirmed_by_admin: true,
+        notes: note,
+      });
+    }
+
+    const siblingExams = examSchedules.filter(
+      (e) => e.exam_date === targetExam.exam_date && e.session === targetExam.session
+    );
+    const siblingExamIds = new Set(siblingExams.map((e) => e.id));
+
+    const matchingAssignments = invigilatorSchedules.filter(
+      (inv) => siblingExamIds.has(inv.exam_schedule_id) && inv.room_id === existing.room_id && inv.role === existing.role
+    );
+
+    for (const assignment of matchingAssignments) {
+      await updateInvigilatorSchedule(assignment.id, {
+        teacher_id: substituteTeacherId,
+        replacement_teacher_id: assignment.teacher_id || null,
+        status: 'Hadir',
+        actual_attendance_time: timeStr,
+        confirmed_by_admin: true,
+        notes: note,
+      });
+    }
+
+    return { success: true };
   };
 
   const batchConfirmAttendance = async (

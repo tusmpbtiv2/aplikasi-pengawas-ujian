@@ -10,6 +10,9 @@ import {
   normalizeSession,
   formatIndonesianDate,
   isTimeOverlap,
+  getSubjectGradeLevels,
+  formatGradeLevelsLabel,
+  getOverlappingGrades,
 } from '../../lib/scheduleHelper';
 import { ExamSchedule, Subject } from '../../types/database';
 import {
@@ -187,7 +190,14 @@ export const ExamScheduleImportModal: React.FC<ExamScheduleImportModalProps> = (
     }
 
     const processed: ParsedScheduleRow[] = [];
-    const seenSlotsInFile = new Set<string>();
+    const seenRowsInFile: {
+      date: string;
+      session: string;
+      startTime: string | null;
+      endTime: string | null;
+      matchedSubject: Subject | null;
+      rowNum: number;
+    }[] = [];
 
     rawRows.forEach((row, idx) => {
       const rowNum = idx + 1;
@@ -244,29 +254,66 @@ export const ExamScheduleImportModal: React.FC<ExamScheduleImportModalProps> = (
       // 4. Session normalization
       const session = normalizeSession(rawSesi);
 
-      // 5. Duplicate & conflict check against existing DB
+      // 5. Duplicate & conflict check against existing DB (only if overlapping grade levels)
       let isDuplicate = false;
-      if (parsedDate && session) {
-        const existingSession = examSchedules.find(
-          (es) =>
-            es.exam_date === parsedDate &&
-            normalizeSession(es.session).toLowerCase() === session.toLowerCase()
-        );
-        if (existingSession) {
+      if (parsedDate && session && matchedSubject) {
+        const existingConflicting = examSchedules.filter((es) => {
+          if (es.exam_date !== parsedDate) return false;
+          const sameSession =
+            normalizeSession(es.session).toLowerCase() === session.toLowerCase();
+          const timeOverlap =
+            startTime && endTime
+              ? isTimeOverlap(startTime, endTime, es.start_time, es.end_time)
+              : false;
+          if (!sameSession && !timeOverlap) return false;
+
+          const existingSub = subjects.find((s) => s.id === es.subject_id);
+          const overlapGrades = getOverlappingGrades(matchedSubject, existingSub);
+          return overlapGrades.length > 0;
+        });
+
+        if (existingConflicting.length > 0) {
           isDuplicate = true;
-          errors.push(`Jadwal bentrok: Sesi '${session}' sudah terdaftar pada tanggal ${parsedDate} di database`);
+          const first = existingConflicting[0];
+          const existSub = subjects.find((s) => s.id === first.subject_id);
+          const overlapGrades = getOverlappingGrades(matchedSubject, existSub);
+          errors.push(
+            `Jadwal bentrok kelas: Sesi '${session}' pada ${parsedDate} bentrok untuk ${formatGradeLevelsLabel(overlapGrades)} dengan '${existSub?.name || 'Mapel'}' di database`
+          );
         }
       }
 
-      // 6. Conflict within current file
+      // 6. Conflict within current file (only if overlapping grade levels)
       let isInternalCollision = false;
-      if (parsedDate && session) {
-        const slotKey = `${parsedDate}_${session.toLowerCase()}`;
-        if (seenSlotsInFile.has(slotKey)) {
+      if (parsedDate && session && matchedSubject) {
+        const collidingRow = seenRowsInFile.find((r) => {
+          if (r.date !== parsedDate) return false;
+          const sameSession = r.session.toLowerCase() === session.toLowerCase();
+          const timeOverlap =
+            startTime && endTime && r.startTime && r.endTime
+              ? isTimeOverlap(startTime, endTime, r.startTime, r.endTime)
+              : false;
+          if (!sameSession && !timeOverlap) return false;
+
+          const overlap = getOverlappingGrades(matchedSubject, r.matchedSubject);
+          return overlap.length > 0;
+        });
+
+        if (collidingRow) {
           isInternalCollision = true;
-          errors.push(`Duplikasi internal: Terdapat lebih dari 1 baris untuk ${parsedDate} ${session} di file ini`);
+          const overlap = getOverlappingGrades(matchedSubject, collidingRow.matchedSubject);
+          errors.push(
+            `Duplikasi internal: Bentrok untuk ${formatGradeLevelsLabel(overlap)} dengan baris #${collidingRow.rowNum} ('${collidingRow.matchedSubject?.name}') pada ${parsedDate} ${session}`
+          );
         } else {
-          seenSlotsInFile.add(slotKey);
+          seenRowsInFile.push({
+            date: parsedDate,
+            session,
+            startTime,
+            endTime,
+            matchedSubject,
+            rowNum,
+          });
         }
       }
 
@@ -710,7 +757,12 @@ export const ExamScheduleImportModal: React.FC<ExamScheduleImportModalProps> = (
                     <td className="py-2.5 px-3">
                       {row.matchedSubject ? (
                         <div>
-                          <p className="font-bold text-slate-900">{row.matchedSubject.name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-slate-900">{row.matchedSubject.name}</p>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              {formatGradeLevelsLabel(getSubjectGradeLevels(row.matchedSubject))}
+                            </span>
+                          </div>
                           <p className="text-[11px] font-mono text-slate-400">
                             Kode: {row.matchedSubject.code}
                           </p>

@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   formatIndonesianDate,
   calculateScheduleMetrics,
+  getSubjectGradeLevels,
+  formatGradeLevelsLabel,
 } from '../../lib/scheduleHelper';
 import {
   Calendar,
@@ -160,9 +162,14 @@ export const ExamScheduleCalendarView: React.FC<ExamScheduleCalendarViewProps> =
 
                       {/* Subject Name */}
                       <div className="mb-3">
-                        <p className="font-extrabold text-slate-900 text-sm group-hover:text-blue-600 transition-colors line-clamp-1">
-                          {subject?.name || 'Mata Pelajaran'}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-extrabold text-slate-900 text-sm group-hover:text-blue-600 transition-colors line-clamp-1">
+                            {subject?.name || 'Mata Pelajaran'}
+                          </p>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {formatGradeLevelsLabel(getSubjectGradeLevels(subject))}
+                          </span>
+                        </div>
                         <p className="text-[11px] text-slate-400 font-mono mt-0.5">
                           Kode: {subject?.code || '-'}
                         </p>

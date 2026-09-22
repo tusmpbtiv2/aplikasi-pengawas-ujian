@@ -3,6 +3,7 @@ import {
   Settings as SettingsIcon,
   Database,
   Shield,
+  ShieldAlert,
   Download,
   School,
   Save,
@@ -28,7 +29,11 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { AppUser, UserRole } from '../../types/database';
-import { SUPABASE_SQL_SCHEMA } from '../../lib/sqlSchemaCode';
+import {
+  SUPABASE_SQL_SCHEMA,
+  SUPABASE_RLS_FIX_SQL,
+  SUPABASE_DISABLE_RLS_SQL,
+} from '../../lib/sqlSchemaCode';
 
 export const SettingsView: React.FC = () => {
   const { user: authUser, role, isConfigured, switchRoleForPreview } = useAuth();
@@ -90,11 +95,19 @@ export const SettingsView: React.FC = () => {
 
   // SQL Schema Modal & Copy
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
+  const [sqlTab, setSqlTab] = useState<'full' | 'rls_fix' | 'rls_disable'>('full');
   const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedRlsFix, setCopiedRlsFix] = useState(false);
+
+  const getActiveSqlCode = () => {
+    if (sqlTab === 'rls_fix') return SUPABASE_RLS_FIX_SQL;
+    if (sqlTab === 'rls_disable') return SUPABASE_DISABLE_RLS_SQL;
+    return SUPABASE_SQL_SCHEMA;
+  };
 
   const handleCopySql = async () => {
     try {
-      await navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+      await navigator.clipboard.writeText(getActiveSqlCode());
       setCopiedSql(true);
       setTimeout(() => setCopiedSql(false), 2500);
     } catch (err) {
@@ -102,12 +115,29 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  const handleCopyRlsFix = async () => {
+    try {
+      await navigator.clipboard.writeText(SUPABASE_RLS_FIX_SQL);
+      setCopiedRlsFix(true);
+      setTimeout(() => setCopiedRlsFix(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy RLS fix SQL:', err);
+    }
+  };
+
   const handleDownloadSql = () => {
-    const blob = new Blob([SUPABASE_SQL_SCHEMA], { type: 'text/plain;charset=utf-8' });
+    const code = getActiveSqlCode();
+    const fileName =
+      sqlTab === 'rls_fix'
+        ? 'fix_rls_policies.sql'
+        : sqlTab === 'rls_disable'
+        ? 'disable_rls.sql'
+        : 'schema_smp_bhinneka.sql';
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'schema_smp_bhinneka.sql';
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -887,6 +917,29 @@ export const SettingsView: React.FC = () => {
                 <li>Klik tombol hijau <strong className="text-emerald-400">Run</strong> (atau tekan Ctrl + Enter).</li>
               </ol>
             </div>
+
+            {/* Banner Khusus Solusi Error RLS Import */}
+            <div className="p-3.5 bg-amber-950/40 rounded-xl border border-amber-500/40 text-amber-200 text-xs space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="font-bold text-amber-100">
+                    Solusi Error "new row violates row-level security policy":
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyRlsFix}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[11px] transition-colors shadow-2xs shrink-0"
+                >
+                  {copiedRlsFix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedRlsFix ? 'SQL Fix Tersalin!' : 'Salin SQL Perbaikan RLS (1-Klik)'}</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                Jika Anda mengalami penolakan RLS saat impor data Excel/CSV ke tabel guru, salin skrip perbaikan di atas lalu jalankan di SQL Editor Supabase untuk membuka akses INSERT/UPDATE secara aman ke semua tabel.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -1087,6 +1140,52 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
+            {/* Tab Selection Header */}
+            <div className="bg-slate-800 px-4 py-2 border-b border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSqlTab('full')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-colors ${
+                    sqlTab === 'full'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  Schema Lengkap (8 Tabel)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSqlTab('rls_fix')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-colors flex items-center gap-1.5 ${
+                    sqlTab === 'rls_fix'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : 'text-amber-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Skrip Perbaikan RLS (Fix Error Import)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSqlTab('rls_disable')}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition-colors ${
+                    sqlTab === 'rls_disable'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700'
+                  }`}
+                >
+                  Nonaktifkan RLS
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-400">
+                {sqlTab === 'full' && 'Struktur tabel, index, foreign keys & RLS default'}
+                {sqlTab === 'rls_fix' && 'Perbaikan kebijakan RLS untuk membebaskan akses INSERT/UPDATE'}
+                {sqlTab === 'rls_disable' && 'Mematikan RLS untuk mode dev internal'}
+              </div>
+            </div>
+
             {/* Instruction Banner */}
             <div className="bg-slate-50 px-5 py-3 border-b border-slate-200 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -1094,14 +1193,18 @@ export const SettingsView: React.FC = () => {
                 <span>Buka <strong>Supabase Dashboard</strong> &rarr; Pilih Proyek &rarr; Menu <strong>SQL Editor</strong> &rarr; <strong>+ New Query</strong> &rarr; Paste & <strong>Run</strong>.</span>
               </div>
               <span className="text-[11px] font-mono text-slate-500">
-                8 Tabel &bull; Row Level Security &bull; Trigger Auth &bull; Seed Data
+                {sqlTab === 'full'
+                  ? '8 Tabel • Row Level Security • Trigger Auth • Seed Data'
+                  : sqlTab === 'rls_fix'
+                  ? 'Membuka akses INSERT/UPDATE untuk Anon & Public di semua tabel'
+                  : 'Disable RLS di semua tabel'}
               </span>
             </div>
 
             {/* Code Block Container */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-950 font-mono text-xs text-slate-200 leading-relaxed select-all">
               <pre className="whitespace-pre overflow-x-auto text-[11px] sm:text-xs text-emerald-300/90 font-mono">
-                {SUPABASE_SQL_SCHEMA}
+                {getActiveSqlCode()}
               </pre>
             </div>
 

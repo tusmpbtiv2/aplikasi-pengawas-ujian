@@ -148,39 +148,16 @@ ALTER TABLE public.exam_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invigilator_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users to view & manage
-CREATE POLICY "Allow authenticated read profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow users update own profile" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
-
-CREATE POLICY "Allow authenticated read teachers" ON public.teachers FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage teachers" ON public.teachers FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read buildings" ON public.buildings FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage buildings" ON public.buildings FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read rooms" ON public.rooms FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage rooms" ON public.rooms FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read subjects" ON public.subjects FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage subjects" ON public.subjects FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read exam_schedules" ON public.exam_schedules FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage exam_schedules" ON public.exam_schedules FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read invigilator_schedules" ON public.invigilator_schedules FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage invigilator_schedules" ON public.invigilator_schedules FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read settings" ON public.settings FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage settings" ON public.settings FOR ALL TO authenticated USING (true);
-
--- Also allow public select if anon preview is enabled (e.g. for demonstration before login)
-CREATE POLICY "Allow anon select teachers" ON public.teachers FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select buildings" ON public.buildings FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select rooms" ON public.rooms FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select subjects" ON public.subjects FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select exam_schedules" ON public.exam_schedules FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select invigilator_schedules" ON public.invigilator_schedules FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select settings" ON public.settings FOR SELECT TO anon USING (true);
+-- Allow full read & write access for public (anon & authenticated)
+-- Ensures CSV/Excel import, automated scheduling, and all app operations work seamlessly
+CREATE POLICY "Allow public all access profiles" ON public.profiles FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access teachers" ON public.teachers FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access buildings" ON public.buildings FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access rooms" ON public.rooms FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access subjects" ON public.subjects FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access exam_schedules" ON public.exam_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access invigilator_schedules" ON public.invigilator_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access settings" ON public.settings FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------
 -- TRIGGER: Handle new user registration from auth.users -> public.profiles

@@ -25,6 +25,7 @@ import {
   X,
   RefreshCw,
   Database,
+  Coffee,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -36,12 +37,18 @@ import { InvigilatorAssignmentModal } from '../invigilators/InvigilatorAssignmen
 import { InvigilatorQuickReplaceModal } from '../invigilators/InvigilatorQuickReplaceModal';
 import { InvigilatorPrintModal } from '../invigilators/InvigilatorPrintModal';
 import { TeacherWorkloadTab } from '../invigilators/TeacherWorkloadTab';
+import { DailyStandbyTeachersTab } from '../invigilators/DailyStandbyTeachersTab';
 import {
   groupAssignmentsByExamAndRoom,
   ExamRoomSlot,
   exportInvigilatorScheduleData,
+  getDailyTeacherStatus,
 } from '../../lib/invigilatorHelper';
-import { formatIndonesianDate } from '../../lib/scheduleHelper';
+import {
+  formatIndonesianDate,
+  formatGradeLevelsLabel,
+  getSubjectGradeLevels,
+} from '../../lib/scheduleHelper';
 
 export const InvigilatorSchedulesView: React.FC = () => {
   const {
@@ -65,8 +72,9 @@ export const InvigilatorSchedulesView: React.FC = () => {
 
   const invigilatorsPerRoom = settings?.default_invigilators_per_room || 2;
 
-  // Active View Tab: 'SCHEDULES' | 'WORKLOAD'
-  const [activeTab, setActiveTab] = useState<'SCHEDULES' | 'WORKLOAD'>('SCHEDULES');
+  // Active View Tab: 'SCHEDULES' | 'DAILY_STANDBY' | 'WORKLOAD'
+  const [activeTab, setActiveTab] = useState<'SCHEDULES' | 'DAILY_STANDBY' | 'WORKLOAD'>('SCHEDULES');
+  const [standbySelectedDate, setStandbySelectedDate] = useState<string>('');
 
   // Modals state
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
@@ -106,6 +114,13 @@ export const InvigilatorSchedulesView: React.FC = () => {
   const uniqueSessions = useMemo(() => {
     return Array.from(new Set(examSchedules.map((es) => es.session))).sort();
   }, [examSchedules]);
+
+  // Current active date for off-duty status preview
+  const activeOffDutyDate = filterDate !== 'ALL' ? filterDate : uniqueDates[0] || '';
+  const dailyStatusInfo = useMemo(() => {
+    if (!activeOffDutyDate) return null;
+    return getDailyTeacherStatus(activeOffDutyDate, teachers, invigilatorSchedules, examSchedules);
+  }, [activeOffDutyDate, teachers, invigilatorSchedules, examSchedules]);
 
   // Grouped rows
   const allGroupedSlots = useMemo<ExamRoomSlot[]>(() => {
@@ -357,7 +372,7 @@ export const InvigilatorSchedulesView: React.FC = () => {
       {/* Tabs Selector & Key Metrics Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
         {/* Tab Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActiveTab('SCHEDULES')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
@@ -368,6 +383,26 @@ export const InvigilatorSchedulesView: React.FC = () => {
           >
             <Layers className="w-4 h-4" />
             <span>Matriks Jadwal Pengawas ({filteredSlots.length} Ruang)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (filterDate !== 'ALL') setStandbySelectedDate(filterDate);
+              setActiveTab('DAILY_STANDBY');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              activeTab === 'DAILY_STANDBY'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Coffee className="w-4 h-4 text-emerald-500" />
+            <span>Guru Bebas Tugas & Pengganti Harian</span>
+            {dailyStatusInfo && (
+              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-md text-[10px] font-bold">
+                {dailyStatusInfo.totalOffDutyToday}
+              </span>
+            )}
           </button>
 
           <button
@@ -625,6 +660,42 @@ export const InvigilatorSchedulesView: React.FC = () => {
             </div>
           </div>
 
+          {/* Daily Off-Duty Substitutes Summary Banner */}
+          {dailyStatusInfo && (
+            <div className="p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start sm:items-center gap-3">
+                <span className="p-2 bg-emerald-600 text-white rounded-xl shrink-0 shadow-xs">
+                  <Coffee className="w-4 h-4" />
+                </span>
+                <div className="space-y-0.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-slate-900">
+                      Pengawas Pengganti Hari Ini ({dailyStatusInfo.dayName}, {formatIndonesianDate(dailyStatusInfo.date)})
+                    </span>
+                    <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-md text-[10px] font-bold">
+                      SOP Pengganti
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Tersedia <strong className="text-emerald-800 font-bold">{dailyStatusInfo.totalOffDutyToday} guru bebas tugas</strong> (termasuk yang libur/tidak tersedia dalam jadwal mengajar) siap sebagai pengganti sebelum <span className="font-semibold text-amber-800">{dailyStatusInfo.totalPanitia} panitia ujian</span>.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStandbySelectedDate(dailyStatusInfo.date);
+                  setActiveTab('DAILY_STANDBY');
+                }}
+                className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-xs shrink-0"
+              >
+                <span>Lihat Guru Pengganti ({dailyStatusInfo.totalOffDutyToday})</span>
+                <ChevronDown className="w-3 h-3 -rotate-90 text-emerald-600" />
+              </button>
+            </div>
+          )}
+
           {/* Grouped Table View */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
             {filteredSlots.length === 0 ? (
@@ -708,12 +779,40 @@ export const InvigilatorSchedulesView: React.FC = () => {
 
                           {/* Mata Pelajaran */}
                           <td className="py-3 px-3.5">
-                            <span className="font-semibold text-slate-900 block">
-                              {subject?.name || 'Mata Pelajaran'}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {subject?.code || ''}
-                            </span>
+                            {slot.allExamSchedules && slot.allExamSchedules.length > 1 ? (
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {slot.allExamSchedules.map((ex) => (
+                                    <span
+                                      key={ex.id}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200"
+                                    >
+                                      <span>{ex.subject?.name || 'Mapel'}</span>
+                                      <span className="text-[10px] text-indigo-600 font-mono">
+                                        ({formatGradeLevelsLabel(getSubjectGradeLevels(ex.subject))})
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                  &bull; 1 Ruang Diawasi Pengawas Sama
+                                </span>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="font-semibold text-slate-900 block">
+                                  {subject?.name || 'Mata Pelajaran'}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {subject?.code || ''}
+                                  {subject && (
+                                    <span className="ml-1 text-slate-500">
+                                      ({formatGradeLevelsLabel(getSubjectGradeLevels(subject))})
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            )}
                           </td>
 
                           {/* Pengawas 1 */}
@@ -922,7 +1021,53 @@ export const InvigilatorSchedulesView: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: TEACHER WORKLOAD & STATS */}
+      {/* TAB 2: GURU BEBAS TUGAS & PENGGANTI HARIAN */}
+      {activeTab === 'DAILY_STANDBY' && (
+        <DailyStandbyTeachersTab
+          examSchedules={examSchedules}
+          invigilatorSchedules={invigilatorSchedules}
+          teachers={teachers}
+          rooms={rooms}
+          selectedDate={standbySelectedDate || uniqueDates[0] || ''}
+          onSelectDate={(date) => setStandbySelectedDate(date)}
+          onAssignReplacement={(_teacherId, date) => {
+            // Find a slot on this date needing assignment or replacement
+            const slotWithEmptyOrExcuse = allGroupedSlots.find(
+              (slot) =>
+                slot.examSchedule.exam_date === date &&
+                (!slot.invigilators[0]?.teacher_id ||
+                  slot.invigilators[0]?.status === 'Izin' ||
+                  (invigilatorsPerRoom >= 2 &&
+                    (!slot.invigilators[1]?.teacher_id || slot.invigilators[1]?.status === 'Izin')))
+            );
+
+            if (slotWithEmptyOrExcuse) {
+              const targetInv = slotWithEmptyOrExcuse.invigilators.find(
+                (inv) => inv && inv.teacher_id && inv.status === 'Izin'
+              );
+              if (targetInv) {
+                setReplacingAssignment(targetInv);
+                setIsQuickReplaceModalOpen(true);
+                return;
+              }
+              handleOpenAssignModal(
+                slotWithEmptyOrExcuse.examSchedule.id,
+                slotWithEmptyOrExcuse.room.id,
+                !slotWithEmptyOrExcuse.invigilators[0]?.teacher_id ? 'Pengawas 1' : 'Pengawas 2'
+              );
+            } else {
+              const sampleSlot = allGroupedSlots.find((s) => s.examSchedule.exam_date === date);
+              if (sampleSlot) {
+                handleOpenAssignModal(sampleSlot.examSchedule.id, sampleSlot.room.id, 'Pengawas 1');
+              } else {
+                handleOpenAssignModal();
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* TAB 3: TEACHER WORKLOAD & STATS */}
       {activeTab === 'WORKLOAD' && (
         <TeacherWorkloadTab
           onSelectTeacherForFilter={(teacherId) => {

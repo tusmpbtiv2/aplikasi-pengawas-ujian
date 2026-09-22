@@ -14,11 +14,13 @@ import {
   XCircle,
   Clock,
   ShieldAlert,
+  Sparkles,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { Teacher } from '../../types/database';
+import { isPanitiaTeacher } from '../../lib/invigilatorHelper';
 import { Modal } from '../common/Modal';
 import { EmptyState } from '../common/EmptyState';
 import { PageHeader } from '../common/PageHeader';
@@ -393,7 +395,14 @@ export const TeachersView: React.FC = () => {
                         {itemNumber}
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900">{t.name}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900">{t.name}</span>
+                          {isPanitiaTeacher(t) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/80 rounded-md text-[10px] font-bold">
+                              ⭐ Panitia (Standby)
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-[11px] font-mono font-bold">
                             Kode: {t.invigilator_code || t.employee_number || `P${String(idx + 1).padStart(2, '0')}`}
@@ -436,23 +445,41 @@ export const TeachersView: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {t.available_days && t.available_days.length > 0 ? (
-                            t.available_days.map((day) => (
-                              <span
-                                key={day}
-                                className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-medium"
-                              >
-                                {day}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-[11px] text-slate-400 italic">-</span>
-                          )}
-                        </div>
+                        {isPanitiaTeacher(t) ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              Tersedia Setiap Hari
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Siaga pengganti darurat
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-1 max-w-xs">
+                            {t.available_days && t.available_days.length > 0 ? (
+                              t.available_days.map((day) => (
+                                <span
+                                  key={day}
+                                  className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px] font-medium"
+                                >
+                                  {day}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[11px] text-slate-400 italic">-</span>
+                            )}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-4 text-slate-500 text-[11px] max-w-xs truncate">
-                        {t.notes || '-'}
+                      <td className="py-3 px-4 text-[11px] max-w-xs truncate">
+                        {isPanitiaTeacher(t) ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded font-medium">
+                            {t.notes}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">{t.notes || '-'}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -664,14 +691,52 @@ export const TeachersView: React.FC = () => {
             </p>
           </div>
 
-          {/* Catatan */}
-          <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1">
-              Catatan Khusus (Opsional)
+          {/* Catatan & Penanda Panitia */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-800">
+                Catatan Khusus (Opsional)
+              </label>
+              <span className="text-[11px] text-amber-700 font-medium flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                Ketik &apos;Panitia&apos; untuk status siaga
+              </span>
+            </div>
+
+            {/* Checkbox cepat status Panitia */}
+            <label className="flex items-start gap-2.5 p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-xl cursor-pointer hover:bg-amber-50 transition-colors">
+              <input
+                type="checkbox"
+                checked={notes.toLowerCase().includes('panitia')}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    if (!notes.toLowerCase().includes('panitia')) {
+                      setNotes(notes.trim() ? `${notes.trim()}, Panitia Ujian` : 'Panitia Ujian');
+                    }
+                  } else {
+                    const cleaned = notes
+                      .replace(/panitia ujian/gi, '')
+                      .replace(/panitia/gi, '')
+                      .replace(/^[,\s]+|[,\s]+$/g, '')
+                      .trim();
+                    setNotes(cleaned);
+                  }
+                }}
+                className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+              />
+              <div className="text-xs">
+                <span className="font-bold text-amber-900 block">
+                  ⭐ Tetapkan sebagai Panitia Ujian (Standby Pengganti Darurat)
+                </span>
+                <span className="text-[11px] text-amber-700 leading-relaxed block mt-0.5">
+                  Jika catatan berisi kata <strong>&apos;Panitia&apos;</strong>, guru otomatis disiagakan setiap hari sebagai opsi guru pengganti jika ada pengawas yang mendadak izin, dan tidak akan mendapat jadwal pengawas rutin pasti.
+                </span>
+              </div>
             </label>
+
             <textarea
               rows={2}
-              placeholder="Contoh: Koordinator pengawas, mengampu mapel Bahasa Indonesia, dll."
+              placeholder="Contoh: Panitia Ujian, Koordinator ruang, dll."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-blue-500 focus:outline-none"

@@ -6,6 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import {
   formatIndonesianDate,
   calculateScheduleMetrics,
+  getSubjectGradeLevels,
+  formatGradeLevelsLabel,
 } from '../../lib/scheduleHelper';
 import {
   Calendar,
@@ -74,9 +76,12 @@ export const ExamScheduleDetailModal: React.FC<ExamScheduleDetailModalProps> = (
         <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-sm border border-slate-700">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
                   {schedule.session}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                  {formatGradeLevelsLabel(getSubjectGradeLevels(subject))}
                 </span>
                 <span className="text-xs text-slate-300 font-mono flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-blue-400" />

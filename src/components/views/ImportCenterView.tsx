@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { RlsAlertBanner } from '../common/RlsAlertBanner';
 import {
   FileUp,
   Download,
@@ -334,14 +335,24 @@ export const ImportCenterView: React.FC = () => {
       )}
 
       {errorMsg && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-900 rounded-xl text-xs font-semibold flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-            <span>{errorMsg}</span>
+        <div className="space-y-3">
+          <div className="p-4 bg-red-50 border border-red-200 text-red-900 rounded-xl text-xs font-semibold flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+            <button onClick={() => setErrorMsg(null)}>
+              <X className="w-4 h-4 text-red-700" />
+            </button>
           </div>
-          <button onClick={() => setErrorMsg(null)}>
-            <X className="w-4 h-4 text-red-700" />
-          </button>
+
+          {(errorMsg.toLowerCase().includes('row-level security') ||
+            errorMsg.toLowerCase().includes('violates row-level security')) && (
+            <RlsAlertBanner
+              tableName={activeEntity.toLowerCase()}
+              onRetry={parsedRows.length > 0 ? handleExecuteImport : undefined}
+            />
+          )}
         </div>
       )}
 

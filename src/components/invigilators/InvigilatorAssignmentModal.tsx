@@ -13,7 +13,7 @@ import { Modal } from '../common/Modal';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
 import { InvigilatorSchedule, Teacher } from '../../types/database';
-import { validateAssignment } from '../../lib/invigilatorHelper';
+import { validateAssignment, isPanitiaTeacher } from '../../lib/invigilatorHelper';
 
 interface InvigilatorAssignmentModalProps {
   isOpen: boolean;
@@ -88,6 +88,17 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
     return selectedExam ? subjects.find((s) => s.id === selectedExam.subject_id) : null;
   }, [selectedExam, subjects]);
 
+  // Concurrent exams happening on the same date and session (e.g. Prakarya & Seni Budaya)
+  const concurrentExams = useMemo(() => {
+    if (!selectedExam) return [];
+    return examSchedules.filter(
+      (e) =>
+        e.id !== selectedExam.id &&
+        e.exam_date === selectedExam.exam_date &&
+        e.session === selectedExam.session
+    );
+  }, [selectedExam, examSchedules]);
+
   // Real-time validation when teacher or exam changes
   useEffect(() => {
     if (!teacherId || !examScheduleId || !roomId) {
@@ -141,6 +152,30 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
         });
 
         if (!res.success) throw new Error(res.error || 'Gagal memperbarui jadwal');
+
+        // Sinkronkan penugasan pengawas yang sama ke seluruh mata pelajaran bersamaan di ruangan ini
+        for (const ce of concurrentExams) {
+          const siblingInv = invigilatorSchedules.find(
+            (inv) => inv.exam_schedule_id === ce.id && inv.room_id === roomId && inv.role === role
+          );
+          if (siblingInv) {
+            await updateInvigilatorSchedule(siblingInv.id, {
+              teacher_id: teacherId || null,
+              status,
+              notes: notes.trim() || null,
+            });
+          } else {
+            await addInvigilatorSchedule({
+              exam_schedule_id: ce.id,
+              room_id: roomId,
+              teacher_id: teacherId || null,
+              role,
+              status,
+              notes: notes.trim() || null,
+            });
+          }
+        }
+
         toastSuccess('Penugasan pengawas berhasil diperbarui');
       } else {
         const res = await addInvigilatorSchedule({
@@ -153,6 +188,30 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
         });
 
         if (!res.success) throw new Error(res.error || 'Gagal menambahkan jadwal');
+
+        // Sinkronkan penugasan pengawas yang sama ke seluruh mata pelajaran bersamaan di ruangan ini
+        for (const ce of concurrentExams) {
+          const siblingInv = invigilatorSchedules.find(
+            (inv) => inv.exam_schedule_id === ce.id && inv.room_id === roomId && inv.role === role
+          );
+          if (siblingInv) {
+            await updateInvigilatorSchedule(siblingInv.id, {
+              teacher_id: teacherId || null,
+              status,
+              notes: notes.trim() || null,
+            });
+          } else {
+            await addInvigilatorSchedule({
+              exam_schedule_id: ce.id,
+              room_id: roomId,
+              teacher_id: teacherId || null,
+              role,
+              status,
+              notes: notes.trim() || null,
+            });
+          }
+        }
+
         toastSuccess('Pengawas berhasil ditugaskan');
       }
       onClose();
@@ -168,7 +227,28 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
   const handleDelete = async () => {
     if (!assignment?.id) return;
     if (window.confirm('Yakin ingin menghapus penugasan pengawas ini?')) {
+      // Hapus penugasan utama
       await deleteInvigilatorSchedule(assignment.id);
+
+      // Hapus juga penugasan di mapel bersamaan untuk ruangan dan sesi yang sama
+      const targetExam = examSchedules.find((e) => e.id === assignment.exam_schedule_id);
+      if (targetExam) {
+        const siblings = invigilatorSchedules.filter((inv) => {
+          if (inv.id === assignment.id) return false;
+          if (inv.room_id !== assignment.room_id || inv.role !== assignment.role) return false;
+          const otherExam = examSchedules.find((e) => e.id === inv.exam_schedule_id);
+          return (
+            otherExam &&
+            otherExam.exam_date === targetExam.exam_date &&
+            otherExam.session === targetExam.session
+          );
+        });
+
+        for (const sib of siblings) {
+          await deleteInvigilatorSchedule(sib.id);
+        }
+      }
+
       toastSuccess('Penugasan pengawas telah dihapus');
       onClose();
     }
@@ -225,6 +305,23 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
               );
             })}
           </select>
+
+          {concurrentExams.length > 0 && selectedExam && (
+            <div className="mt-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  Sesi Multi-Mapel ({concurrentExams.length + 1} Mapel Bersamaan)
+                </p>
+                <p className="text-[11px] text-blue-700 mt-0.5">
+                  Pada {selectedExam.day_name} ({selectedExam.session}), terdapat mapel bersamaan:{' '}
+                  <strong>{selectedSubject?.name}</strong> +{' '}
+                  <strong>{concurrentExams.map((e) => e.subject?.name || 'Mapel').join(', ')}</strong>.
+                  Ruangan yang dipilih akan otomatis diawasi oleh 1 pengawas yang sama untuk seluruh mapel tersebut tanpa memicu bentrok.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Ruangan & Peran */}
@@ -287,9 +384,12 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
           >
             <option value="">-- Kosongkan (Belum Ada Guru) --</option>
             {teachers.map((t) => {
-              const isAvailable = selectedExam ? t.available_days?.includes(selectedExam.day_name) : true;
+              const isPanitia = isPanitiaTeacher(t);
+              const isAvailable = isPanitia || (selectedExam ? t.available_days?.includes(selectedExam.day_name) : true);
               const statusTag = !t.active
                 ? ' [NONAKTIF]'
+                : isPanitia
+                ? ' [⭐ PANITIA - STANDBY PENGGANTI]'
                 : !isAvailable
                 ? ` [Hari ${selectedExam?.day_name} Tdk Tersedia]`
                 : '';
@@ -301,8 +401,22 @@ export const InvigilatorAssignmentModal: React.FC<InvigilatorAssignmentModalProp
               );
             })}
           </select>
+          {(() => {
+            const selectedTeacherObj = teachers.find((t) => t.id === teacherId);
+            if (selectedTeacherObj && isPanitiaTeacher(selectedTeacherObj)) {
+              return (
+                <div className="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 flex items-start gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Guru Panitia:</strong> Guru ini memiliki catatan &apos;Panitia&apos; (siaga setiap hari sebagai pengganti darurat jika pengawas berhalangan izin).
+                  </span>
+                </div>
+              );
+            }
+            return null;
+          })()}
           <p className="text-[10px] text-slate-400 mt-1">
-            * Guru yang nonaktif tidak dapat dipilih. Guru yang tidak tersedia pada hari tersebut akan menampilkan peringatan.
+            * Guru yang nonaktif tidak dapat dipilih. Guru panitia disiagakan untuk penggantian darurat.
           </p>
         </div>
 

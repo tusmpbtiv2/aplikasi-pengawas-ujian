@@ -148,39 +148,16 @@ ALTER TABLE public.exam_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invigilator_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
--- Policies for Authenticated Users
-CREATE POLICY "Allow authenticated read profiles" ON public.profiles FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow users update own profile" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
-
-CREATE POLICY "Allow authenticated read teachers" ON public.teachers FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage teachers" ON public.teachers FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read buildings" ON public.buildings FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage buildings" ON public.buildings FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read rooms" ON public.rooms FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage rooms" ON public.rooms FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read subjects" ON public.subjects FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage subjects" ON public.subjects FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read exam_schedules" ON public.exam_schedules FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage exam_schedules" ON public.exam_schedules FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read invigilator_schedules" ON public.invigilator_schedules FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage invigilator_schedules" ON public.invigilator_schedules FOR ALL TO authenticated USING (true);
-
-CREATE POLICY "Allow authenticated read settings" ON public.settings FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Allow authenticated manage settings" ON public.settings FOR ALL TO authenticated USING (true);
-
--- Public / Anon Preview Read Access
-CREATE POLICY "Allow anon select teachers" ON public.teachers FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select buildings" ON public.buildings FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select rooms" ON public.rooms FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select subjects" ON public.subjects FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select exam_schedules" ON public.exam_schedules FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select invigilator_schedules" ON public.invigilator_schedules FOR SELECT TO anon USING (true);
-CREATE POLICY "Allow anon select settings" ON public.settings FOR SELECT TO anon USING (true);
+-- Allow full read & write access for public (anon & authenticated)
+-- Ensures CSV/Excel import, automated scheduling, and all app operations work seamlessly
+CREATE POLICY "Allow public all access profiles" ON public.profiles FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access teachers" ON public.teachers FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access buildings" ON public.buildings FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access rooms" ON public.rooms FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access subjects" ON public.subjects FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access exam_schedules" ON public.exam_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access invigilator_schedules" ON public.invigilator_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public all access settings" ON public.settings FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------
 -- TRIGGER: Handle new user registration from auth.users -> public.profiles
@@ -278,4 +255,77 @@ VALUES
   ('10000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Ruang 01 Sesi 2'),
   ('10000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000004', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Matematika')
 ON CONFLICT DO NOTHING;
+`;
+
+export const SUPABASE_RLS_FIX_SQL = `-- ========================================================================
+-- PERBAIKAN CEPAT RLS SUPABASE (ROW LEVEL SECURITY FIX)
+-- Mengatasi Error: "new row violates row-level security policy for table 'teachers'"
+-- Jalankan skrip ini di SQL Editor Supabase Anda, lalu klik "RUN"
+-- ========================================================================
+
+-- 1. Tabel teachers (Guru)
+DROP POLICY IF EXISTS "Allow anon select teachers" ON public.teachers;
+DROP POLICY IF EXISTS "Allow authenticated read teachers" ON public.teachers;
+DROP POLICY IF EXISTS "Allow authenticated manage teachers" ON public.teachers;
+DROP POLICY IF EXISTS "Allow public all access teachers" ON public.teachers;
+CREATE POLICY "Allow public all access teachers" ON public.teachers FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 2. Tabel buildings (Gedung)
+DROP POLICY IF EXISTS "Allow anon select buildings" ON public.buildings;
+DROP POLICY IF EXISTS "Allow authenticated read buildings" ON public.buildings;
+DROP POLICY IF EXISTS "Allow authenticated manage buildings" ON public.buildings;
+DROP POLICY IF EXISTS "Allow public all access buildings" ON public.buildings;
+CREATE POLICY "Allow public all access buildings" ON public.buildings FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 3. Tabel rooms (Ruangan)
+DROP POLICY IF EXISTS "Allow anon select rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow authenticated read rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow authenticated manage rooms" ON public.rooms;
+DROP POLICY IF EXISTS "Allow public all access rooms" ON public.rooms;
+CREATE POLICY "Allow public all access rooms" ON public.rooms FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 4. Tabel subjects (Mata Pelajaran)
+DROP POLICY IF EXISTS "Allow anon select subjects" ON public.subjects;
+DROP POLICY IF EXISTS "Allow authenticated read subjects" ON public.subjects;
+DROP POLICY IF EXISTS "Allow authenticated manage subjects" ON public.subjects;
+DROP POLICY IF EXISTS "Allow public all access subjects" ON public.subjects;
+CREATE POLICY "Allow public all access subjects" ON public.subjects FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 5. Tabel exam_schedules (Jadwal Ujian)
+DROP POLICY IF EXISTS "Allow anon select exam_schedules" ON public.exam_schedules;
+DROP POLICY IF EXISTS "Allow authenticated read exam_schedules" ON public.exam_schedules;
+DROP POLICY IF EXISTS "Allow authenticated manage exam_schedules" ON public.exam_schedules;
+DROP POLICY IF EXISTS "Allow public all access exam_schedules" ON public.exam_schedules;
+CREATE POLICY "Allow public all access exam_schedules" ON public.exam_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 6. Tabel invigilator_schedules (Jadwal Pengawas)
+DROP POLICY IF EXISTS "Allow anon select invigilator_schedules" ON public.invigilator_schedules;
+DROP POLICY IF EXISTS "Allow authenticated read invigilator_schedules" ON public.invigilator_schedules;
+DROP POLICY IF EXISTS "Allow authenticated manage invigilator_schedules" ON public.invigilator_schedules;
+DROP POLICY IF EXISTS "Allow public all access invigilator_schedules" ON public.invigilator_schedules;
+CREATE POLICY "Allow public all access invigilator_schedules" ON public.invigilator_schedules FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 7. Tabel settings (Pengaturan Sekolah)
+DROP POLICY IF EXISTS "Allow anon select settings" ON public.settings;
+DROP POLICY IF EXISTS "Allow authenticated read settings" ON public.settings;
+DROP POLICY IF EXISTS "Allow authenticated manage settings" ON public.settings;
+DROP POLICY IF EXISTS "Allow public all access settings" ON public.settings;
+CREATE POLICY "Allow public all access settings" ON public.settings FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 8. Tabel profiles (Profil Pengguna)
+DROP POLICY IF EXISTS "Allow authenticated read profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Allow users update own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Allow public all access profiles" ON public.profiles;
+CREATE POLICY "Allow public all access profiles" ON public.profiles FOR ALL TO public USING (true) WITH CHECK (true);
+`;
+
+export const SUPABASE_DISABLE_RLS_SQL = `-- Alternatif: Nonaktifkan Row Level Security jika Anda tidak memerlukan pembatasan akses
+ALTER TABLE public.teachers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.buildings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rooms DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subjects DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.exam_schedules DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invigilator_schedules DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
 `;

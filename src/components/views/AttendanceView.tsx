@@ -21,11 +21,17 @@ import {
   FileSpreadsheet,
   BadgeCheck,
   XCircle,
+  Sparkles,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { useToast } from '../../context/ToastContext';
-import { InvigilatorSchedule, Teacher } from '../../types/database';
-import { formatIndonesianDate } from '../../lib/scheduleHelper';
+import { InvigilatorSchedule, Teacher, Subject, ExamSchedule, Room, Building } from '../../types/database';
+import {
+  formatIndonesianDate,
+  formatGradeLevelsLabel,
+  getSubjectGradeLevels,
+} from '../../lib/scheduleHelper';
+import { isPanitiaTeacher, getDailyTeacherStatus } from '../../lib/invigilatorHelper';
 import { Modal } from '../common/Modal';
 
 export const AttendanceView: React.FC = () => {
@@ -82,55 +88,92 @@ export const AttendanceView: React.FC = () => {
   const [replacementNotes, setReplacementNotes] = useState<string>('');
   const [submittingSub, setSubmittingSub] = useState<boolean>(false);
 
-  // Enriched daily schedules
+  // Enriched daily schedules grouped by room, session, and role
+  // Jika 1 ruangan pada sesi tersebut ada 2 mapel bersamaan (misal Prakarya kls 7 & Seni Budaya kls 9),
+  // cukup ditampilkan sebagai 1 baris tugas terpadu dengan 1 pengawas yang sama.
   const dailySchedules = useMemo(() => {
-    return invigilatorSchedules
-      .filter((inv) => {
-        const exam = examSchedules.find((e) => e.id === inv.exam_schedule_id);
-        if (!exam) return false;
-        if (selectedDate && exam.exam_date !== selectedDate) return false;
-        if (selectedSession !== 'ALL' && exam.session !== selectedSession) return false;
+    const slotMap = new Map<
+      string,
+      {
+        primaryInv: InvigilatorSchedule;
+        allInvIds: string[];
+        exams: ExamSchedule[];
+        subjects: Subject[];
+        room?: Room;
+        building?: Building | null;
+        teacher?: Teacher | null;
+        replacementTeacher?: Teacher | null;
+      }
+    >();
 
-        const room = rooms.find((r) => r.id === inv.room_id);
-        if (selectedBuilding !== 'ALL' && room?.building_id !== selectedBuilding) return false;
+    invigilatorSchedules.forEach((inv) => {
+      const exam = examSchedules.find((e) => e.id === inv.exam_schedule_id);
+      if (!exam) return;
+      if (selectedDate && exam.exam_date !== selectedDate) return;
+      if (selectedSession !== 'ALL' && exam.session !== selectedSession) return;
 
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const teacher = teachers.find((t) => t.id === inv.teacher_id);
-          const sub = subjects.find((s) => s.id === exam.subject_id);
-          const teacherMatch = teacher?.name.toLowerCase().includes(q) || teacher?.invigilator_code?.toLowerCase().includes(q);
-          const roomMatch = room?.name.toLowerCase().includes(q) || room?.code.toLowerCase().includes(q);
-          const subMatch = sub?.name.toLowerCase().includes(q);
-          return teacherMatch || roomMatch || subMatch;
-        }
+      const room = rooms.find((r) => r.id === inv.room_id);
+      if (selectedBuilding !== 'ALL' && room?.building_id !== selectedBuilding) return;
 
-        return true;
-      })
-      .map((inv) => {
-        const exam = examSchedules.find((e) => e.id === inv.exam_schedule_id);
-        const room = rooms.find((r) => r.id === inv.room_id);
-        const building = room ? buildings.find((b) => b.id === room.building_id) : null;
-        const subject = exam ? subjects.find((s) => s.id === exam.subject_id) : null;
-        const teacher = teachers.find((t) => t.id === inv.teacher_id);
-        const replacementTeacher = inv.replacement_teacher_id
-          ? teachers.find((t) => t.id === inv.replacement_teacher_id)
-          : null;
+      const teacher = teachers.find((t) => t.id === inv.teacher_id);
+      const sub = subjects.find((s) => s.id === exam.subject_id);
 
-        return {
-          ...inv,
-          exam,
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const teacherMatch =
+          teacher?.name.toLowerCase().includes(q) ||
+          teacher?.invigilator_code?.toLowerCase().includes(q);
+        const roomMatch =
+          room?.name.toLowerCase().includes(q) || room?.code.toLowerCase().includes(q);
+        const subMatch = sub?.name.toLowerCase().includes(q);
+        if (!teacherMatch && !roomMatch && !subMatch) return;
+      }
+
+      const slotKey = `${exam.exam_date}_${exam.session}_${inv.room_id}_${inv.role}`;
+      const building = room ? buildings.find((b) => b.id === room.building_id) : null;
+      const replacementTeacher = inv.replacement_teacher_id
+        ? teachers.find((t) => t.id === inv.replacement_teacher_id)
+        : null;
+
+      if (!slotMap.has(slotKey)) {
+        slotMap.set(slotKey, {
+          primaryInv: inv,
+          allInvIds: [inv.id],
+          exams: [exam],
+          subjects: sub ? [sub] : [],
           room,
           building,
-          subject,
           teacher,
           replacementTeacher,
-        };
-      })
-      .sort((a, b) => {
-        const timeCompare = (a.exam?.start_time || '').localeCompare(b.exam?.start_time || '');
-        if (timeCompare !== 0) return timeCompare;
-        return (a.room?.code || '').localeCompare(b.room?.code || '', undefined, { numeric: true });
-      });
+        });
+      } else {
+        const cur = slotMap.get(slotKey)!;
+        cur.allInvIds.push(inv.id);
+        if (!cur.exams.some((e) => e.id === exam.id)) cur.exams.push(exam);
+        if (sub && !cur.subjects.some((s) => s.id === sub.id)) cur.subjects.push(sub);
+      }
+    });
+
+    const list = Array.from(slotMap.values()).map((entry) => {
+      return {
+        ...entry.primaryInv,
+        allInvIds: entry.allInvIds,
+        exam: entry.exams[0],
+        allExams: entry.exams,
+        subject: entry.subjects[0],
+        allSubjects: entry.subjects,
+        room: entry.room,
+        building: entry.building,
+        teacher: entry.teacher || undefined,
+        replacementTeacher: entry.replacementTeacher || undefined,
+      };
+    });
+
+    return list.sort((a, b) => {
+      const timeCompare = (a.exam?.start_time || '').localeCompare(b.exam?.start_time || '');
+      if (timeCompare !== 0) return timeCompare;
+      return (a.room?.code || '').localeCompare(b.room?.code || '', undefined, { numeric: true });
+    });
   }, [
     invigilatorSchedules,
     examSchedules,
@@ -297,7 +340,9 @@ export const AttendanceView: React.FC = () => {
         });
       });
 
-    // Tally attendance
+    // Tally attendance: hindari double count jika 1 pengawas mengawasi 2 mapel bersamaan di ruangan & sesi yang sama
+    const processedDuties = new Set<string>();
+
     invigilatorSchedules.forEach((inv) => {
       // Must be confirmed Hadir or Digantikan (if this teacher was the active replacement)
       const isAttended = inv.status === 'Hadir' || inv.status === 'Digantikan';
@@ -332,22 +377,27 @@ export const AttendanceView: React.FC = () => {
         teacherMap.set(inv.teacher_id, item);
       }
 
-      item.totalSessionsAttended += 1;
-      if (!inv.confirmed_by_admin) {
-        item.allConfirmed = false;
-      }
+      const dutyKey = `${inv.teacher_id}_${exam.exam_date}_${exam.session}_${inv.room_id}`;
+      if (!processedDuties.has(dutyKey)) {
+        processedDuties.add(dutyKey);
+        item.totalSessionsAttended += 1;
 
-      // Add to subject breakdown
-      const existingSub = item.subjectBreakdowns.find((sb) => sb.subjectId === subject.id);
-      if (existingSub) {
-        existingSub.count += 1;
-      } else {
-        item.subjectBreakdowns.push({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          subjectCode: subject.code,
-          count: 1,
-        });
+        if (!inv.confirmed_by_admin) {
+          item.allConfirmed = false;
+        }
+
+        // Add to subject breakdown
+        const existingSub = item.subjectBreakdowns.find((sb) => sb.subjectId === subject.id);
+        if (existingSub) {
+          existingSub.count += 1;
+        } else {
+          item.subjectBreakdowns.push({
+            subjectId: subject.id,
+            subjectName: subject.name,
+            subjectCode: subject.code,
+            count: 1,
+          });
+        }
       }
     });
 
@@ -731,10 +781,36 @@ export const AttendanceView: React.FC = () => {
                               </span>
                               <span>{item.exam?.start_time.slice(0, 5)} - {item.exam?.end_time.slice(0, 5)}</span>
                             </div>
-                            <div className="text-[11px] text-blue-600 font-bold mt-0.5 flex items-center gap-1">
-                              <BookOpen className="w-3 h-3" />
-                              <span>{item.subject?.name}</span>
-                            </div>
+                            {item.allSubjects && item.allSubjects.length > 1 ? (
+                              <div className="mt-1 space-y-0.5">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {item.allSubjects.map((sb) => (
+                                    <span
+                                      key={sb.id}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                    >
+                                      <span>{sb.name}</span>
+                                      <span className="text-[9px] opacity-75 font-mono">
+                                        ({formatGradeLevelsLabel(getSubjectGradeLevels(sb))})
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="text-[10px] text-emerald-700 font-bold block">
+                                  &bull; 1 Ruang Diawasi Pengawas Sama
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-blue-600 font-bold mt-0.5 flex items-center gap-1">
+                                <BookOpen className="w-3 h-3" />
+                                <span>{item.subject?.name}</span>
+                                {item.subject && (
+                                  <span className="text-[10px] text-slate-500 font-mono">
+                                    ({formatGradeLevelsLabel(getSubjectGradeLevels(item.subject))})
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
 
                           {/* Role */}
@@ -1158,6 +1234,46 @@ export const AttendanceView: React.FC = () => {
               </div>
             </div>
 
+            {/* Quick-pick for Panitia standby teachers */}
+            {(() => {
+              const panitiaList = teachers.filter(
+                (t) => t.active && t.id !== targetScheduleForSub.teacher_id && isPanitiaTeacher(t)
+              );
+              if (panitiaList.length === 0) return null;
+              return (
+                <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      Rekomendasi Pengganti (Panitia Standby):
+                    </span>
+                    <span className="text-[10px] text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md font-semibold">
+                      Tersedia Setiap Hari
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {panitiaList.map((p) => {
+                      const isSelected = replacementTeacherId === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setReplacementTeacherId(p.id)}
+                          className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                            isSelected
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100/70'
+                          }`}
+                        >
+                          <span>⭐ [{p.invigilator_code || 'PANITIA'}] {p.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Pilih Guru Pengganti *
@@ -1168,14 +1284,68 @@ export const AttendanceView: React.FC = () => {
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"
               >
                 <option value="">-- Pilih Guru Pengganti --</option>
-                {teachers
-                  .filter((t) => t.active && t.id !== targetScheduleForSub.teacher_id)
-                  .sort((a, b) => (a.invigilator_code || '').localeCompare(b.invigilator_code || '', undefined, { numeric: true }))
-                  .map((t) => (
-                    <option key={t.id} value={t.id}>
-                      [{t.invigilator_code || 'GURU'}] {t.name} ({t.gender})
-                    </option>
-                  ))}
+                {(() => {
+                  const targetExam = examSchedules.find((e) => e.id === targetScheduleForSub.exam_schedule_id);
+                  const targetDate = targetExam?.exam_date || selectedDate;
+                  const dailyStatus = targetDate
+                    ? getDailyTeacherStatus(targetDate, teachers, invigilatorSchedules, examSchedules)
+                    : null;
+
+                  const offDutyList = dailyStatus
+                    ? dailyStatus.offDutyTeachers
+                        .filter((o) => o.teacher.id !== targetScheduleForSub.teacher_id)
+                        .sort((a, b) => (a.teacher.invigilator_code || '').localeCompare(b.teacher.invigilator_code || '', undefined, { numeric: true }))
+                    : [];
+
+                  const panitias = teachers
+                    .filter((t) => t.active && t.id !== targetScheduleForSub.teacher_id && isPanitiaTeacher(t))
+                    .sort((a, b) => (a.invigilator_code || '').localeCompare(b.invigilator_code || '', undefined, { numeric: true }));
+
+                  const offDutyTeacherIds = new Set(offDutyList.map((o) => o.teacher.id));
+                  const panitiaIds = new Set(panitias.map((p) => p.id));
+
+                  const others = teachers
+                    .filter(
+                      (t) =>
+                        t.active &&
+                        t.id !== targetScheduleForSub.teacher_id &&
+                        !offDutyTeacherIds.has(t.id) &&
+                        !panitiaIds.has(t.id)
+                    )
+                    .sort((a, b) => (a.invigilator_code || '').localeCompare(b.invigilator_code || '', undefined, { numeric: true }));
+
+                  return (
+                    <>
+                      {offDutyList.length > 0 && (
+                        <optgroup label="🟢 PRIORITAS 1: Guru Bebas Tugas Hari Ini (Sebelum Panitia)">
+                          {offDutyList.map((o) => (
+                            <option key={o.teacher.id} value={o.teacher.id}>
+                              [{o.teacher.invigilator_code || 'GURU'}] {o.teacher.name} — {o.reasonLabel}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {panitias.length > 0 && (
+                        <optgroup label="⭐ PRIORITAS 2: Panitia Ujian (Standby Opsi Darurat)">
+                          {panitias.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              ⭐ [{t.invigilator_code || 'PANITIA'}] {t.name} (Siaga Panitia)
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {others.length > 0 && (
+                        <optgroup label="Guru Lainnya (Sedang Terjadwal di Sesi Lain)">
+                          {others.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              [{t.invigilator_code || 'GURU'}] {t.name} ({t.gender})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </select>
             </div>
 

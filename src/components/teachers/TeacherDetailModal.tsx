@@ -2,6 +2,7 @@ import React from 'react';
 import { Teacher } from '../../types/database';
 import { Modal } from '../common/Modal';
 import { useData } from '../../context/DataContext';
+import { isPanitiaTeacher } from '../../lib/invigilatorHelper';
 import {
   User,
   Calendar,
@@ -12,6 +13,7 @@ import {
   Clock,
   ShieldCheck,
   Building2,
+  Sparkles,
 } from 'lucide-react';
 
 interface TeacherDetailModalProps {
@@ -74,6 +76,12 @@ export const TeacherDetailModal: React.FC<TeacherDetailModalProps> = ({
                   </>
                 )}
               </span>
+              {isPanitiaTeacher(teacher) && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                  <Sparkles className="w-3 h-3 text-amber-600" />
+                  Panitia Ujian (Standby Pengganti)
+                </span>
+              )}
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-slate-600">
@@ -95,20 +103,32 @@ export const TeacherDetailModal: React.FC<TeacherDetailModalProps> = ({
             <Calendar className="w-4 h-4 text-blue-600" />
             Hari Ketersediaan Mengawas Ujian
           </h4>
-          <div className="flex flex-wrap gap-1.5">
-            {teacher.available_days && teacher.available_days.length > 0 ? (
-              teacher.available_days.map((day) => (
-                <span
-                  key={day}
-                  className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-lg text-xs font-medium"
-                >
-                  {day}
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-rose-500 italic">Belum ada hari yang dipilih</span>
-            )}
-          </div>
+          {isPanitiaTeacher(teacher) ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
+              <div className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                Tersedia Setiap Hari (Standby Pengganti Panitia)
+              </div>
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                Karena memiliki catatan <strong>&apos;Panitia&apos;</strong>, guru ini disiagakan setiap hari di sekolah sebagai opsi guru pengganti darurat jika ada pengawas yang mendadak izin/berhalangan.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {teacher.available_days && teacher.available_days.length > 0 ? (
+                teacher.available_days.map((day) => (
+                  <span
+                    key={day}
+                    className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200/80 rounded-lg text-xs font-medium"
+                  >
+                    {day}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-rose-500 italic">Belum ada hari yang dipilih</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Catatan */}
@@ -163,8 +183,17 @@ export const TeacherDetailModal: React.FC<TeacherDetailModalProps> = ({
               ))}
             </div>
           ) : (
-            <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
-              Guru ini belum memiliki penugasan jadwal mengawas ruang ujian.
+            <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center text-xs">
+              {isPanitiaTeacher(teacher) ? (
+                <div className="text-amber-800 space-y-1">
+                  <p className="font-semibold">Guru ini berstatus Panitia Ujian (Standby Pengganti)</p>
+                  <p className="text-[11px] text-amber-700/80">
+                    Sesuai ketentuan, panitia tidak diberikan jadwal mengawas pasti otomatis agar selalu siaga setiap hari untuk menggantikan pengawas yang mendadak izin.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-slate-400">Guru ini belum memiliki penugasan jadwal mengawas ruang ujian.</p>
+              )}
             </div>
           )}
         </div>

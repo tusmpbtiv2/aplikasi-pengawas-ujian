@@ -8,8 +8,11 @@ import {
   getDayNameFromDate,
   isTimeOverlap,
   normalizeSession,
+  getSubjectGradeLevels,
+  formatGradeLevelsLabel,
+  getOverlappingGrades,
 } from '../../lib/scheduleHelper';
-import { Calendar, Clock, BookOpen, AlertTriangle, Users, Info } from 'lucide-react';
+import { Calendar, Clock, BookOpen, AlertTriangle, Users, Info, CheckCircle2 } from 'lucide-react';
 
 interface ExamScheduleFormModalProps {
   isOpen: boolean;
@@ -34,6 +37,7 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [conflictWarning, setConflictWarning] = useState<string | null>(null);
+  const [parallelInfo, setParallelInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // Initialize or reset form values
@@ -61,6 +65,7 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
       }
       setFormError(null);
       setConflictWarning(null);
+      setParallelInfo(null);
     }
   }, [isOpen, scheduleToEdit, subjects]);
 
@@ -89,13 +94,15 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
     }
   };
 
-  // Check for conflicts on date & time/session
+  // Check for conflicts on date & time/session considering grade levels
   useEffect(() => {
     if (!examDate || !startTime || !endTime) {
       setConflictWarning(null);
+      setParallelInfo(null);
       return;
     }
 
+    const currentSubject = subjects.find((s) => s.id === subjectId);
     const normSession = normalizeSession(session).toLowerCase();
     const otherSchedules = examSchedules.filter(
       (es) => !scheduleToEdit || es.id !== scheduleToEdit.id
@@ -103,34 +110,69 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
 
     const sameDateSchedules = otherSchedules.filter((es) => es.exam_date === examDate);
 
-    // 1. Check exact same session on the same date
-    const sessionMatch = sameDateSchedules.find(
-      (es) => normalizeSession(es.session).toLowerCase() === normSession
-    );
+    // Find concurrent schedules (either exact same session or overlapping time)
+    const concurrentSchedules = sameDateSchedules.filter((es) => {
+      const sameSession = normalizeSession(es.session).toLowerCase() === normSession;
+      const timeOverlap = isTimeOverlap(startTime, endTime, es.start_time, es.end_time);
+      return sameSession || timeOverlap;
+    });
 
-    if (sessionMatch) {
-      const matchSubject = subjects.find((s) => s.id === sessionMatch.subject_id);
-      setConflictWarning(
-        `Perhatian: Sudah terdapat jadwal ${sessionMatch.session} (${matchSubject?.name || 'Mapel'}) pada tanggal ${examDate}. Pastikan sesi tidak bertabrakan.`
-      );
+    if (concurrentSchedules.length === 0) {
+      setConflictWarning(null);
+      setParallelInfo(null);
       return;
     }
 
-    // 2. Check time overlap on same date
-    const timeOverlapMatch = sameDateSchedules.find((es) =>
-      isTimeOverlap(startTime, endTime, es.start_time, es.end_time)
-    );
+    // Check each concurrent schedule for grade level overlap
+    const clashingSchedules: {
+      schedule: ExamSchedule;
+      subject?: Subject;
+      clashingGrades: string[];
+    }[] = [];
 
-    if (timeOverlapMatch) {
-      const matchSubject = subjects.find((s) => s.id === timeOverlapMatch.subject_id);
+    const nonClashingParallelSchedules: {
+      schedule: ExamSchedule;
+      subject?: Subject;
+      grades: string[];
+    }[] = [];
+
+    concurrentSchedules.forEach((cs) => {
+      const otherSub = subjects.find((s) => s.id === cs.subject_id);
+      const overlap = getOverlappingGrades(currentSubject, otherSub);
+      if (overlap.length > 0) {
+        clashingSchedules.push({
+          schedule: cs,
+          subject: otherSub,
+          clashingGrades: overlap,
+        });
+      } else {
+        nonClashingParallelSchedules.push({
+          schedule: cs,
+          subject: otherSub,
+          grades: getSubjectGradeLevels(otherSub),
+        });
+      }
+    });
+
+    if (clashingSchedules.length > 0) {
+      const first = clashingSchedules[0];
       setConflictWarning(
-        `Perhatian: Jam ujian (${startTime} - ${endTime}) beririsan dengan jadwal lain (${timeOverlapMatch.start_time.slice(0, 5)} - ${timeOverlapMatch.end_time.slice(0, 5)}: ${matchSubject?.name || 'Mapel'}).`
+        `Perhatian Bentrok: Jadwal ini bertabrakan pada tingkatan ${formatGradeLevelsLabel(first.clashingGrades)} dengan jadwal "${first.subject?.name || 'Mapel'}" (${first.schedule.session}, ${first.schedule.start_time.slice(0, 5)} - ${first.schedule.end_time.slice(0, 5)}).`
       );
-      return;
+      setParallelInfo(null);
+    } else if (nonClashingParallelSchedules.length > 0) {
+      const parallelSummary = nonClashingParallelSchedules
+        .map((p) => `"${p.subject?.name || 'Mapel'}" (${formatGradeLevelsLabel(p.grades)})`)
+        .join(', ');
+      setConflictWarning(null);
+      setParallelInfo(
+        `Jadwal Bersamaan (Paralel): Pada sesi/jam ini juga terdapat ujian ${parallelSummary}. Jadwal ini diizinkan dan TIDAK bentrok karena tingkatan kelas murid berbeda.`
+      );
+    } else {
+      setConflictWarning(null);
+      setParallelInfo(null);
     }
-
-    setConflictWarning(null);
-  }, [examDate, session, startTime, endTime, examSchedules, scheduleToEdit, subjects]);
+  }, [examDate, session, startTime, endTime, subjectId, examSchedules, scheduleToEdit, subjects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,6 +261,16 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
           </div>
         )}
 
+        {parallelInfo && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
+            <div className="leading-relaxed">
+              <span className="font-bold">Info Sesi Paralel: </span>
+              <span>{parallelInfo}</span>
+            </div>
+          </div>
+        )}
+
         {/* Tanggal & Hari */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -274,10 +326,24 @@ export const ExamScheduleFormModal: React.FC<ExamScheduleFormModalProps> = ({
             <option value="">-- Pilih Mata Pelajaran --</option>
             {subjects.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} ({s.code}) {s.grade_level ? `- Kelas ${s.grade_level}` : ''}
+                {s.name} ({s.code}) - {formatGradeLevelsLabel(getSubjectGradeLevels(s))}
               </option>
             ))}
           </select>
+          {subjectId && (
+            <div className="mt-1.5 p-2 bg-indigo-50/70 border border-indigo-200/80 rounded-xl text-[11px] text-indigo-900 flex items-center gap-2">
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>
+                Mata pelajaran ini berlaku untuk:{' '}
+                <strong className="font-bold text-indigo-950">
+                  {formatGradeLevelsLabel(
+                    getSubjectGradeLevels(subjects.find((s) => s.id === subjectId))
+                  )}
+                </strong>{' '}
+                <span className="text-slate-500">(sesuai centang di Master Mata Pelajaran)</span>
+              </span>
+            </div>
+          )}
           {subjects.length === 0 && (
             <p className="text-[11px] text-amber-600 mt-1">
               Belum ada mata pelajaran di Data Master. Silakan tambahkan terlebih dahulu di menu Mata Pelajaran.
