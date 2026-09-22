@@ -65,6 +65,16 @@ export const formatIndonesianDate = (dateStr: string): string => {
 };
 
 /**
+ * Format date with Indonesian day name e.g. "Sabtu, 26 September 2026"
+ */
+export const formatIndonesianDayAndDate = (dateStr: string, explicitDayName?: string): string => {
+  if (!dateStr) return '-';
+  const dayName = explicitDayName || getDayNameFromDate(dateStr);
+  const formattedDate = formatIndonesianDate(dateStr);
+  return `${dayName}, ${formattedDate}`;
+};
+
+/**
  * Parses user or spreadsheet date input to standard YYYY-MM-DD
  * Supports: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, Excel serial date numbers
  */

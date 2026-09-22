@@ -7,3 +7,40 @@
     color: #0f172a;
   }
 }
+
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation, header, sidebar, footer and non-printable elements */
+  header,
+  aside,
+  nav,
+  footer,
+  .print-hidden,
+  .print\:hidden,
+  [class*="print:hidden"] {
+    display: none !important;
+  }
+
+  /* Reset layout constraints and offsets */
+  .lg\:pl-64 {
+    padding-left: 0 !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 10mm 12mm;
+  }
+}

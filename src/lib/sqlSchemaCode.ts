@@ -125,6 +125,14 @@ CREATE TABLE IF NOT EXISTS public.settings (
   exam_name TEXT NOT NULL DEFAULT 'Penilaian Akhir Semester (PAS) Genap',
   academic_year TEXT NOT NULL DEFAULT '2024/2025',
   semester TEXT NOT NULL DEFAULT 'Genap',
+  principal_name TEXT DEFAULT 'Drs. H. Mulyono, M.Pd.',
+  principal_nip TEXT DEFAULT '19680512 199403 1 005',
+  committee_chairman_name TEXT DEFAULT 'Budi Santoso, S.Pd.',
+  committee_chairman_nip TEXT DEFAULT '19750814 200003 1 002',
+  committee_secretary_name TEXT,
+  document_city TEXT DEFAULT 'Jakarta',
+  document_date DATE,
+  honor_per_session INTEGER DEFAULT 40000,
   default_invigilators_per_room INTEGER NOT NULL DEFAULT 2,
   default_start_time TIME DEFAULT '07:30:00' NOT NULL,
   default_duration INTEGER DEFAULT 90 NOT NULL,
@@ -135,6 +143,16 @@ CREATE TABLE IF NOT EXISTS public.settings (
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+-- Migration jika tabel public.settings sudah ada sebelumnya
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_name TEXT DEFAULT 'Drs. H. Mulyono, M.Pd.';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_nip TEXT DEFAULT '19680512 199403 1 005';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_name TEXT DEFAULT 'Budi Santoso, S.Pd.';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_nip TEXT DEFAULT '19750814 200003 1 002';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_secretary_name TEXT;
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_city TEXT DEFAULT 'Jakarta';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_date DATE;
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS honor_per_session INTEGER DEFAULT 40000;
 
 -- ------------------------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS)
@@ -258,10 +276,22 @@ ON CONFLICT DO NOTHING;
 `;
 
 export const SUPABASE_RLS_FIX_SQL = `-- ========================================================================
--- PERBAIKAN CEPAT RLS SUPABASE (ROW LEVEL SECURITY FIX)
--- Mengatasi Error: "new row violates row-level security policy for table 'teachers'"
+-- PERBAIKAN CEPAT RLS SUPABASE & SINKRONISASI KOLOM PENGATURAN
+-- Mengatasi:
+-- 1. Error: "Could not find the 'committee_chairman_name' column of 'settings' in the schema cache"
+-- 2. Error: "new row violates row-level security policy for table 'teachers'"
 -- Jalankan skrip ini di SQL Editor Supabase Anda, lalu klik "RUN"
 -- ========================================================================
+
+-- Pastikan kolom-kolom baru pada tabel settings sudah terdaftar:
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_name TEXT DEFAULT 'Drs. H. Mulyono, M.Pd.';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_nip TEXT DEFAULT '19680512 199403 1 005';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_name TEXT DEFAULT 'Budi Santoso, S.Pd.';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_nip TEXT DEFAULT '19750814 200003 1 002';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_secretary_name TEXT;
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_city TEXT DEFAULT 'Jakarta';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_date DATE;
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS honor_per_session INTEGER DEFAULT 40000;
 
 -- 1. Tabel teachers (Guru)
 DROP POLICY IF EXISTS "Allow anon select teachers" ON public.teachers;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, Shield, LogIn, LogOut, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Menu, Shield, LogIn, LogOut, CheckCircle, AlertTriangle, RefreshCw, FolderKanban } from 'lucide-react';
 import { MenuItemId } from '../../types/database';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -69,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectMenu,
 }) => {
   const { user, role, signOut, isConfigured, switchRoleForPreview } = useAuth();
-  const { loading, refreshAll } = useData();
+  const { loading, refreshAll, projects, activeProjectId, switchProject } = useData();
 
   const currentInfo = menuTitles[currentMenu] || {
     title: 'Sistem Manajemen Ujian Sekolah',
@@ -103,6 +103,26 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2.5">
+        {/* Project / Kegiatan Ujian Switcher */}
+        {projects && projects.length > 0 && (
+          <div className="hidden lg:flex items-center gap-1.5 bg-blue-50/80 border border-blue-200/80 text-blue-900 rounded-lg px-2.5 py-1 text-xs">
+            <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span className="text-[11px] font-medium text-blue-600 hidden xl:inline">Kegiatan:</span>
+            <select
+              value={activeProjectId}
+              onChange={(e) => switchProject(e.target.value)}
+              className="bg-transparent font-bold text-xs text-blue-950 focus:outline-none cursor-pointer max-w-[200px] truncate"
+              title="Pilih Kegiatan Ujian / Proyek Aktif"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id} className="text-slate-800 bg-white">
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Refresh button */}
         <button
           onClick={() => refreshAll()}

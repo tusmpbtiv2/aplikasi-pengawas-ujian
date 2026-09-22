@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Teacher, Building, Room, Subject, ExamSchedule } from '../types/database';
+import { Teacher, Building, Room, Subject, ExamSchedule, InvigilatorSchedule } from '../types/database';
 
 /**
  * Parse an uploaded file (CSV or XLSX) into raw array of row objects
@@ -285,3 +285,122 @@ export const downloadExamScheduleTemplate = (format: 'xlsx' | 'csv' = 'xlsx') =>
   ];
   exportToSpreadsheet(sampleData, 'Template_Import_Jadwal_Ujian', format, 'Template Jadwal');
 };
+
+/**
+ * Export Daftar Hadir Pengawas Harian to Excel (.xlsx)
+ * Format Kolom: No | Ruang | Sesi & Waktu | Mata Pelajaran | Nama Pengawas | Kode | Tanda Tangan | Ket.
+ */
+export const exportDailyAttendanceToExcel = (
+  attendanceRows: {
+    no: number;
+    roomName: string;
+    sessionTime: string;
+    subjectName: string;
+    teacherName: string;
+    invigilatorCode: string;
+    sigText?: string;
+    notes?: string;
+  }[],
+  meta: {
+    schoolName: string;
+    examName: string;
+    academicYear: string;
+    dayAndDate: string;
+    sessionInfo?: string;
+  }
+) => {
+  const data = attendanceRows.map((r) => ({
+    No: r.no,
+    Ruang: r.roomName,
+    'Sesi & Waktu': r.sessionTime,
+    'Mata Pelajaran': r.subjectName,
+    'Nama Pengawas': r.teacherName,
+    Kode: r.invigilatorCode,
+    'Tanda Tangan': r.sigText || '.......................',
+    'Ket.': r.notes || '-',
+  }));
+
+  const cleanDate = meta.dayAndDate.replace(/[\/,\s]+/g, '_').toLowerCase();
+  const filename = `Daftar_Hadir_Pengawas_${cleanDate}`;
+  exportToSpreadsheet(data, filename, 'xlsx', 'Daftar Hadir Pengawas');
+};
+
+/**
+ * Export Master Matriks Jadwal All Ujian & Lampiran Guru to Excel (.xlsx)
+ * Generates a workbook with 2 sheets:
+ * 1. Matriks Jadwal Ruang (Rooms x Exam Sessions with Invigilator Code & Name)
+ * 2. Lampiran Guru & Kode Pengawas
+ */
+export const exportAllExamMatrixToExcel = (
+  rooms: Room[],
+  buildings: Building[],
+  uniqueExamSessions: ExamSchedule[],
+  invigilatorSchedules: InvigilatorSchedule[],
+  teachers: Teacher[],
+  meta: {
+    schoolName: string;
+    examName: string;
+    academicYear: string;
+  }
+) => {
+  const teacherMap = new Map(teachers.map((t) => [t.id, t]));
+  const activeRooms = rooms.filter((r) => r.active);
+
+  // 1. Build Matrix Rows (Sheet 1)
+  const matrixData = activeRooms.map((room, rIdx) => {
+    const b = buildings.find((bg) => bg.id === room.building_id);
+    const rowObj: Record<string, any> = {
+      No: rIdx + 1,
+      'Ruang Ujian': room.name,
+      'Kode Ruang': room.code,
+      Gedung: b?.name ? `${b.name} (${b.code})` : '-',
+    };
+
+    uniqueExamSessions.forEach((exam) => {
+      const inv1 = invigilatorSchedules.find(
+        (i) => i.exam_schedule_id === exam.id && i.room_id === room.id && i.role === 'Pengawas 1'
+      );
+      const inv2 = invigilatorSchedules.find(
+        (i) => i.exam_schedule_id === exam.id && i.room_id === room.id && i.role === 'Pengawas 2'
+      );
+
+      const t1 = inv1?.teacher_id ? teacherMap.get(inv1.teacher_id) : null;
+      const t2 = inv2?.teacher_id ? teacherMap.get(inv2.teacher_id) : null;
+
+      const sessionLabel = `${exam.day_name || ''} ${exam.exam_date} (${exam.session})`;
+      rowObj[`${sessionLabel} - P1`] = t1 ? `${t1.invigilator_code || 'P'} (${t1.name})` : '-';
+      rowObj[`${sessionLabel} - P2`] = t2 ? `${t2.invigilator_code || 'P'} (${t2.name})` : '-';
+    });
+
+    return rowObj;
+  });
+
+  // 2. Build Lampiran Guru (Sheet 2)
+  const teacherStats = teachers.map((t, idx) => {
+    const dutyCount = invigilatorSchedules.filter((i) => i.teacher_id === t.id).length;
+    return {
+      No: idx + 1,
+      'Kode Pengawas': t.invigilator_code || '-',
+      'Nama Lengkap & Gelar': t.name,
+      NIP: t.employee_number || '-',
+      'Jenis Kelamin': t.gender || '-',
+      'Total Sesi Mengawas': dutyCount,
+      Status: t.active ? 'Aktif' : 'Non-Aktif',
+      'Hari Ketersediaan': t.available_days?.join(', ') || 'Semua Hari',
+      Catatan: t.notes || '-',
+    };
+  });
+
+  // 3. Create Multi-Sheet Workbook
+  const workbook = XLSX.utils.book_new();
+  const wsMatrix = XLSX.utils.json_to_sheet(matrixData);
+  const wsTeachers = XLSX.utils.json_to_sheet(teacherStats);
+
+  XLSX.utils.book_append_sheet(workbook, wsMatrix, 'Matriks Jadwal Ruang');
+  XLSX.utils.book_append_sheet(workbook, wsTeachers, 'Lampiran Guru & Kode');
+
+  const cleanExamName = (meta.examName || 'Master_Jadwal').replace(/[\/,\s]+/g, '_');
+  XLSX.writeFile(workbook, `Master_Jadwal_Pengawas_${cleanExamName}.xlsx`, { bookType: 'xlsx' });
+};
+
+

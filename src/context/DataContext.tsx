@@ -10,8 +10,45 @@ import {
   Settings,
   ConflictDetail,
   AppUser,
+  ExamProject,
 } from '../types/database';
 import { isPanitiaTeacher } from '../lib/invigilatorHelper';
+import { INITIAL_PROJECTS } from '../data/initialData';
+
+// LocalStorage Keys for persistent offline / Netlify storage
+const STORAGE_KEYS = {
+  TEACHERS: 'sim_teachers_data_v2',
+  BUILDINGS: 'sim_buildings_data_v2',
+  ROOMS: 'sim_rooms_data_v2',
+  SUBJECTS: 'sim_subjects_data_v2',
+  EXAM_SCHEDULES: 'sim_exam_schedules_data_v2',
+  INVIGILATOR_SCHEDULES: 'sim_invigilator_schedules_data_v2',
+  SETTINGS: 'sim_settings_data_v2',
+  USERS: 'sim_users_data_v2',
+  PROJECTS: 'sim_projects_data_v2',
+  ACTIVE_PROJECT: 'sim_active_project_id_v2',
+};
+
+function getStored<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const val = localStorage.getItem(key);
+    if (!val) return fallback;
+    const parsed = JSON.parse(val);
+    return parsed !== null && parsed !== undefined ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setStored<T>(key: string, val: T): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch (e) {
+    console.warn(`Failed to save to localStorage (${key}):`, e);
+  }
+}
 
 // Initial default seed data for immediate demonstration and offline fallback
 const INITIAL_SETTINGS: Settings = {
@@ -30,6 +67,11 @@ const INITIAL_SETTINGS: Settings = {
   theme: 'blue',
   date_format: 'DD/MM/YYYY',
   app_name: 'Sistem Manajemen Ujian Sekolah',
+  principal_name: 'Drs. H. Mulyono, M.Pd.',
+  principal_nip: '19680512 199403 1 005',
+  committee_chairman_name: 'Budi Santoso, S.Pd.',
+  committee_chairman_nip: '19750814 200003 1 002',
+  document_city: 'Jakarta',
 };
 
 const INITIAL_USERS: AppUser[] = [
@@ -353,6 +395,23 @@ interface DataContextType {
   invigilatorSchedules: InvigilatorSchedule[];
   settings: Settings;
   conflicts: ConflictDetail[];
+
+  // Projects / Kegiatan Ujian Multi-Event
+  projects: ExamProject[];
+  activeProjectId: string;
+  activeProject: ExamProject | undefined;
+  switchProject: (projectId: string) => Promise<boolean>;
+  createProject: (params: {
+    name: string;
+    academic_year: string;
+    semester: string;
+    exam_name: string;
+    duplicateCurrentSchedule?: boolean;
+    description?: string;
+  }) => Promise<{ success: boolean; id?: string }>;
+  updateProject: (id: string, updates: Partial<ExamProject>) => Promise<{ success: boolean }>;
+  deleteProject: (id: string) => Promise<{ success: boolean; error?: string }>;
+  syncLocalToSupabase: () => Promise<{ success: boolean; message: string }>;
   
   // Stats
   emptyScheduleSlotsCount: number;
@@ -421,17 +480,56 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [teachers, setTeachers] = useState<Teacher[]>(INITIAL_TEACHERS);
-  const [buildings, setBuildings] = useState<Building[]>(INITIAL_BUILDINGS);
-  const [rooms, setRooms] = useState<Room[]>(INITIAL_ROOMS);
-  const [subjects, setSubjects] = useState<Subject[]>(INITIAL_SUBJECTS);
-  const [examSchedules, setExamSchedules] = useState<ExamSchedule[]>(INITIAL_EXAM_SCHEDULES);
-  const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(INITIAL_INVIGILATOR_SCHEDULES);
-  const [settings, setSettings] = useState<Settings>(INITIAL_SETTINGS);
-  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+  const [projects, setProjects] = useState<ExamProject[]>(() =>
+    getStored<ExamProject[]>(STORAGE_KEYS.PROJECTS, INITIAL_PROJECTS)
+  );
+  const [activeProjectId, setActiveProjectId] = useState<string>(() =>
+    getStored<string>(STORAGE_KEYS.ACTIVE_PROJECT, INITIAL_PROJECTS[0]?.id || 'proj-pas-genap-2025')
+  );
+
+  const [teachers, setTeachers] = useState<Teacher[]>(() =>
+    getStored<Teacher[]>(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS)
+  );
+  const [buildings, setBuildings] = useState<Building[]>(() =>
+    getStored<Building[]>(STORAGE_KEYS.BUILDINGS, INITIAL_BUILDINGS)
+  );
+  const [rooms, setRooms] = useState<Room[]>(() =>
+    getStored<Room[]>(STORAGE_KEYS.ROOMS, INITIAL_ROOMS)
+  );
+  const [subjects, setSubjects] = useState<Subject[]>(() =>
+    getStored<Subject[]>(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS)
+  );
+  const [examSchedules, setExamSchedules] = useState<ExamSchedule[]>(() =>
+    getStored<ExamSchedule[]>(STORAGE_KEYS.EXAM_SCHEDULES, INITIAL_EXAM_SCHEDULES)
+  );
+  const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(() =>
+    getStored<InvigilatorSchedule[]>(STORAGE_KEYS.INVIGILATOR_SCHEDULES, INITIAL_INVIGILATOR_SCHEDULES)
+  );
+  const [settings, setSettings] = useState<Settings>(() =>
+    getStored<Settings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS)
+  );
+  const [users, setUsers] = useState<AppUser[]>(() =>
+    getStored<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS)
+  );
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Synchronize state changes to localStorage
+  useEffect(() => { setStored(STORAGE_KEYS.TEACHERS, teachers); }, [teachers]);
+  useEffect(() => { setStored(STORAGE_KEYS.BUILDINGS, buildings); }, [buildings]);
+  useEffect(() => { setStored(STORAGE_KEYS.ROOMS, rooms); }, [rooms]);
+  useEffect(() => { setStored(STORAGE_KEYS.SUBJECTS, subjects); }, [subjects]);
+  useEffect(() => { setStored(STORAGE_KEYS.EXAM_SCHEDULES, examSchedules); }, [examSchedules]);
+  useEffect(() => { setStored(STORAGE_KEYS.INVIGILATOR_SCHEDULES, invigilatorSchedules); }, [invigilatorSchedules]);
+  useEffect(() => { setStored(STORAGE_KEYS.SETTINGS, settings); }, [settings]);
+  useEffect(() => { setStored(STORAGE_KEYS.USERS, users); }, [users]);
+  useEffect(() => { setStored(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
+  useEffect(() => { setStored(STORAGE_KEYS.ACTIVE_PROJECT, activeProjectId); }, [activeProjectId]);
+
+  const activeProject = useMemo(() => {
+    return projects.find((p) => p.id === activeProjectId) || projects[0];
+  }, [projects, activeProjectId]);
 
   // Fetch all data from Supabase
   const refreshAll = useCallback(async () => {
@@ -1330,11 +1428,64 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateSettings = async (updates: Partial<Settings>) => {
     setSettings((prev) => ({ ...prev, ...updates }));
 
+    // Keep activeProject synchronized with the updated exam_name / academic_year / semester
+    if (activeProjectId && (updates.exam_name || updates.academic_year || updates.semester)) {
+      setProjects((prev) =>
+        prev.map((proj) => {
+          if (proj.id === activeProjectId) {
+            const newExamName = updates.exam_name !== undefined ? updates.exam_name : proj.exam_name;
+            const newYear = updates.academic_year !== undefined ? updates.academic_year : proj.academic_year;
+            const newSemester = updates.semester !== undefined ? updates.semester : proj.semester;
+            return {
+              ...proj,
+              exam_name: newExamName,
+              academic_year: newYear,
+              semester: newSemester,
+              name: `${newExamName} (${newYear})`,
+              updated_at: new Date().toISOString(),
+            };
+          }
+          return proj;
+        })
+      );
+    }
+
     if (isSupabaseConfigured()) {
       const supabase = getSupabase();
       if (supabase && settings.id) {
-        const { error } = await supabase.from('settings').update(updates).eq('id', settings.id);
-        if (error) return { success: false, error: error.message };
+        // Safe update with iterative missing-column fallback
+        // Prevents "Could not find the 'xyz' column of 'settings' in the schema cache"
+        const payload: Record<string, any> = { ...updates };
+        let attempts = 0;
+        while (attempts < 10 && Object.keys(payload).length > 0) {
+          attempts++;
+          const { error } = await supabase.from('settings').update(payload).eq('id', settings.id);
+          if (!error) break;
+
+          // Check if error is due to a missing column in Supabase schema cache
+          const match =
+            error.message.match(/Could not find the '([^']+)' column/i) ||
+            error.message.match(/column "?([^"'\s]+)"? of relation "settings" does not exist/i) ||
+            error.message.match(/column "?([^"'\s]+)"? does not exist/i);
+
+          if (match && match[1]) {
+            const missingCol = match[1];
+            console.warn(
+              `[Supabase] Kolom '${missingCol}' belum terdaftar di tabel settings Supabase. Mengabaikan kolom ini dari payload remote sync:`,
+              error.message
+            );
+            delete payload[missingCol];
+          } else {
+            console.warn('[Supabase] Gagal menyimpan pengaturan ke remote:', error.message);
+            if (
+              error.message.toLowerCase().includes('schema cache') ||
+              error.message.toLowerCase().includes('column')
+            ) {
+              break;
+            }
+            return { success: false, error: error.message };
+          }
+        }
       }
     }
     return { success: true };
@@ -1449,6 +1600,210 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ==================== MULTI-PROJECT MANAGEMENT ====================
+  const switchProject = async (targetId: string): Promise<boolean> => {
+    const target = projects.find((p) => p.id === targetId);
+    if (!target) return false;
+
+    // Snapshot current active project's schedules
+    setProjects((prev) =>
+      prev.map((proj) =>
+        proj.id === activeProjectId
+          ? {
+              ...proj,
+              exam_schedules: [...examSchedules],
+              invigilator_schedules: [...invigilatorSchedules],
+              updated_at: new Date().toISOString(),
+            }
+          : proj
+      )
+    );
+
+    // Switch to target project
+    setActiveProjectId(targetId);
+    setExamSchedules(target.exam_schedules || []);
+    setInvigilatorSchedules(target.invigilator_schedules || []);
+
+    // Update settings to reflect target project metadata
+    setSettings((prev) => ({
+      ...prev,
+      exam_name: target.exam_name || target.name,
+      academic_year: target.academic_year || prev.academic_year,
+      semester: target.semester || prev.semester,
+    }));
+
+    return true;
+  };
+
+  const createProject = async (params: {
+    name: string;
+    academic_year: string;
+    semester: string;
+    exam_name: string;
+    duplicateCurrentSchedule?: boolean;
+    description?: string;
+  }): Promise<{ success: boolean; id?: string }> => {
+    const newId = `proj_${Date.now()}`;
+    const newExamSchedules = params.duplicateCurrentSchedule ? [...examSchedules] : [];
+    const newInvSchedules = params.duplicateCurrentSchedule ? [...invigilatorSchedules] : [];
+
+    const newProj: ExamProject = {
+      id: newId,
+      name: params.name,
+      academic_year: params.academic_year,
+      semester: params.semester,
+      exam_name: params.exam_name,
+      description: params.description || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_active: true,
+      exam_schedules: newExamSchedules,
+      invigilator_schedules: newInvSchedules,
+    };
+
+    // Save current active project state and prepend new project
+    setProjects((prev) => {
+      const updatedCurrent = prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, exam_schedules: [...examSchedules], invigilator_schedules: [...invigilatorSchedules] }
+          : p
+      );
+      return [newProj, ...updatedCurrent];
+    });
+
+    setActiveProjectId(newId);
+    setExamSchedules(newExamSchedules);
+    setInvigilatorSchedules(newInvSchedules);
+
+    setSettings((prev) => ({
+      ...prev,
+      exam_name: params.exam_name || params.name,
+      academic_year: params.academic_year,
+      semester: params.semester,
+    }));
+
+    return { success: true, id: newId };
+  };
+
+  const updateProject = async (id: string, updates: Partial<ExamProject>): Promise<{ success: boolean }> => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
+    );
+    if (id === activeProjectId && (updates.name || updates.exam_name || updates.academic_year || updates.semester)) {
+      setSettings((prev) => ({
+        ...prev,
+        exam_name: updates.exam_name || updates.name || prev.exam_name,
+        academic_year: updates.academic_year || prev.academic_year,
+        semester: updates.semester || prev.semester,
+      }));
+    }
+    return { success: true };
+  };
+
+  const deleteProject = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    if (projects.length <= 1) {
+      const freshProject: ExamProject = {
+        id: 'proj_' + Date.now(),
+        name: 'Ujian Baru',
+        exam_name: 'UJIAN SEKOLAH',
+        academic_year: settings.academic_year || '2024/2025',
+        semester: settings.semester || 'Genap',
+        created_at: new Date().toISOString(),
+        exam_schedules: [],
+        invigilator_schedules: [],
+      };
+      setProjects([freshProject]);
+      setActiveProjectId(freshProject.id);
+      setExamSchedules([]);
+      setInvigilatorSchedules([]);
+      setSettings((prev) => ({
+        ...prev,
+        exam_name: freshProject.exam_name,
+        academic_year: freshProject.academic_year,
+        semester: freshProject.semester,
+      }));
+      return { success: true };
+    }
+    const remaining = projects.filter((p) => p.id !== id);
+    setProjects(remaining);
+    if (activeProjectId === id) {
+      const next = remaining[0];
+      setActiveProjectId(next.id);
+      setExamSchedules(next.exam_schedules || []);
+      setInvigilatorSchedules(next.invigilator_schedules || []);
+      setSettings((prev) => ({
+        ...prev,
+        exam_name: next.exam_name || next.name,
+        academic_year: next.academic_year,
+        semester: next.semester,
+      }));
+    }
+    return { success: true };
+  };
+
+  const syncLocalToSupabase = async (): Promise<{ success: boolean; message: string }> => {
+    if (!isSupabaseConfigured()) {
+      return {
+        success: false,
+        message: 'Supabase belum dikonfigurasi. Masukkan Supabase URL dan Anon Key di Pengaturan terlebih dahulu.',
+      };
+    }
+    const supabase = getSupabase();
+    if (!supabase) {
+      return { success: false, message: 'Klien Supabase tidak dapat diinisialisasi.' };
+    }
+    setLoading(true);
+    try {
+      if (buildings.length > 0) {
+        await supabase.from('buildings').upsert(buildings, { onConflict: 'id' });
+      }
+      if (rooms.length > 0) {
+        const cleanRooms = rooms.map(({ building, ...rest }) => rest);
+        await supabase.from('rooms').upsert(cleanRooms, { onConflict: 'id' });
+      }
+      if (teachers.length > 0) {
+        await supabase.from('teachers').upsert(teachers, { onConflict: 'id' });
+      }
+      if (subjects.length > 0) {
+        await supabase.from('subjects').upsert(subjects, { onConflict: 'id' });
+      }
+      if (examSchedules.length > 0) {
+        const cleanExams = examSchedules.map(({ subject, ...rest }) => rest);
+        await supabase.from('exam_schedules').upsert(cleanExams, { onConflict: 'id' });
+      }
+      if (invigilatorSchedules.length > 0) {
+        const cleanInvs = invigilatorSchedules.map(({ exam_schedule, room, teacher, ...rest }) => rest);
+        await supabase.from('invigilator_schedules').upsert(cleanInvs, { onConflict: 'id' });
+      }
+      if (settings.id) {
+        const payload: Record<string, any> = { ...settings };
+        let attempts = 0;
+        while (attempts < 10 && Object.keys(payload).length > 0) {
+          attempts++;
+          const { error } = await supabase.from('settings').upsert([payload], { onConflict: 'id' });
+          if (!error) break;
+          const match =
+            error.message.match(/Could not find the '([^']+)' column/i) ||
+            error.message.match(/column "?([^"'\s]+)"? of relation "settings" does not exist/i) ||
+            error.message.match(/column "?([^"'\s]+)"? does not exist/i);
+          if (match && match[1]) {
+            delete payload[match[1]];
+          } else {
+            break;
+          }
+        }
+      }
+      setLoading(false);
+      return {
+        success: true,
+        message: `Sinkronisasi cloud berhasil! ${teachers.length} Guru, ${rooms.length} Ruang, ${examSchedules.length} Jadwal Ujian, dan ${invigilatorSchedules.length} Penugasan Pengawas telah tersimpan di Supabase.`,
+      };
+    } catch (err: any) {
+      setLoading(false);
+      return { success: false, message: `Gagal sinkronisasi: ${err?.message || 'Terjadi kesalahan saat upload'}` };
+    }
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -1463,6 +1818,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         settings,
         users,
         conflicts,
+        projects,
+        activeProjectId,
+        activeProject,
+        switchProject,
+        createProject,
+        updateProject,
+        deleteProject,
+        syncLocalToSupabase,
         emptyScheduleSlotsCount,
         scheduledInvigilatorsCount,
         refreshAll,

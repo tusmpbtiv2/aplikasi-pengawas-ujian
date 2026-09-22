@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Printer,
   FileText,
@@ -15,10 +15,60 @@ import {
   Info,
   ChevronRight,
   Sparkles,
+  ExternalLink,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { Teacher, Room, ExamSchedule, InvigilatorSchedule } from '../../types/database';
-import { formatIndonesianDate } from '../../lib/scheduleHelper';
+import { formatIndonesianDate, formatIndonesianDayAndDate } from '../../lib/scheduleHelper';
+import { exportDailyAttendanceToExcel, exportAllExamMatrixToExcel } from '../../lib/excelHelper';
+import { FileSpreadsheet } from 'lucide-react';
+
+const SchoolKopLogo: React.FC<{ logoUrl?: string; size?: 'sm' | 'md' | 'lg' }> = ({ logoUrl, size = 'lg' }) => {
+  const [imgError, setImgError] = useState(false);
+
+  const dimensionClasses = {
+    sm: 'w-12 h-12 max-h-12 max-w-12',
+    md: 'w-14 h-14 max-h-14 max-w-14',
+    lg: 'w-20 h-20 max-h-20 max-w-20',
+  }[size];
+
+  const wrapperClasses = {
+    sm: 'w-12 h-12',
+    md: 'w-14 h-14',
+    lg: 'w-20 h-20',
+  }[size];
+
+  if (logoUrl && !imgError) {
+    return (
+      <div className={`${wrapperClasses} shrink-0 flex items-center justify-center`}>
+        <img
+          src={logoUrl}
+          alt="Logo Sekolah"
+          className={`${dimensionClasses} object-contain print:block`}
+          referrerPolicy="no-referrer"
+          onError={() => setImgError(true)}
+        />
+      </div>
+    );
+  }
+
+  // Indonesian education emblem / crest fallback
+  return (
+    <div className={`${wrapperClasses} shrink-0 flex items-center justify-center`}>
+      <svg viewBox="0 0 100 100" className={`${dimensionClasses} text-black print:block`} fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="46" stroke="#000" strokeWidth="2.5" fill="#fff" />
+        <circle cx="50" cy="50" r="41" stroke="#000" strokeWidth="1" strokeDasharray="3 2" />
+        <path d="M50 18 L53 26 L61 27 L55 33 L57 41 L50 37 L43 41 L45 33 L39 27 L47 26 Z" fill="#000" />
+        <path d="M26 58 Q50 48 74 58 L74 63 Q50 53 26 63 Z" fill="#000" />
+        <path d="M50 50 L50 63" stroke="#000" strokeWidth="2" />
+        <path d="M35 70 Q50 64 65 70" stroke="#000" strokeWidth="2" fill="none" />
+        <path d="M42 76 Q50 72 58 76" stroke="#000" strokeWidth="2" fill="none" />
+      </svg>
+    </div>
+  );
+};
 
 type PrintTab = 'f4_attendance' | 'a5_card' | 'all_matrix';
 
@@ -34,6 +84,7 @@ export const PrintCenterView: React.FC = () => {
   } = useData();
 
   const [activeTab, setActiveTab] = useState<PrintTab>('f4_attendance');
+  const [isPrintSandboxModalOpen, setIsPrintSandboxModalOpen] = useState(false);
 
   // Filters for F4 Attendance
   const uniqueDates = useMemo(() => {
@@ -47,9 +98,62 @@ export const PrintCenterView: React.FC = () => {
   // Filters for A5 Card
   const [selectedTeacherA5, setSelectedTeacherA5] = useState<string>('ALL'); // 'ALL' or teacherId
 
-  // Trigger browser print
+  // Synchronize state with URL parameters if provided (e.g. when opened in a new tab)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab') as PrintTab | null;
+      if (tabParam && ['f4_attendance', 'a5_card', 'all_matrix'].includes(tabParam)) {
+        setActiveTab(tabParam);
+      }
+      const dateParam = params.get('date');
+      if (dateParam) setSelectedDateF4(dateParam);
+      const sessionParam = params.get('session');
+      if (sessionParam) setSelectedSessionF4(sessionParam);
+      const buildingParam = params.get('building');
+      if (buildingParam) setSelectedBuildingF4(buildingParam);
+      const teacherParam = params.get('teacher');
+      if (teacherParam) setSelectedTeacherA5(teacherParam);
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Generate target URL for standalone print in a new tab (bypasses iframe sandbox flags)
+  const getPrintUrl = () => {
+    const params = new URLSearchParams();
+    params.set('menu', 'print_center');
+    params.set('tab', activeTab);
+    if (selectedDateF4) params.set('date', selectedDateF4);
+    if (selectedSessionF4) params.set('session', selectedSessionF4);
+    if (selectedBuildingF4) params.set('building', selectedBuildingF4);
+    if (selectedTeacherA5) params.set('teacher', selectedTeacherA5);
+    params.set('print_only', 'true');
+    params.set('autoPrint', 'true');
+    return `?${params.toString()}`;
+  };
+
+  // Trigger browser print with sandbox / iframe fallback
   const handlePrint = () => {
-    window.print();
+    let directPrintTriggered = false;
+    try {
+      window.print();
+      directPrintTriggered = true;
+    } catch (err) {
+      console.warn('Direct window.print() was intercepted or failed:', err);
+    }
+
+    // Inside iframe preview environments (like AI Studio), window.print() can be suppressed
+    // by iframe sandbox without 'allow-modals'. If we are in an iframe or if print failed:
+    if (window.self !== window.top) {
+      try {
+        const win = window.open(getPrintUrl(), '_blank');
+        if (win) return;
+      } catch (popupErr) {
+        console.warn('window.open was blocked by browser:', popupErr);
+      }
+      setIsPrintSandboxModalOpen(true);
+    }
   };
 
   // -------------------------------------------------------------
@@ -101,6 +205,45 @@ export const PrintCenterView: React.FC = () => {
     selectedSessionF4,
     selectedBuildingF4,
   ]);
+
+  const handleExportDailyExcel = () => {
+    if (!selectedDateF4) return;
+    const formattedDayAndDate = formatIndonesianDayAndDate(selectedDateF4);
+
+    const exportRows = f4AttendanceData.map((item, index) => ({
+      no: index + 1,
+      roomName: `${item.room?.name || 'Ruang'} (${item.building?.code || ''})`,
+      sessionTime: `${item.exam?.session || '-'} (${item.exam?.start_time.slice(0, 5)} - ${item.exam?.end_time.slice(0, 5)})`,
+      subjectName: item.subject?.name || '-',
+      teacherName: item.teacher?.name || 'Belum Ditugaskan',
+      invigilatorCode: item.teacher?.invigilator_code || '-',
+      sigText: item.status === 'Hadir' ? 'HADIR' : '.......................',
+      notes: item.status || item.notes || '-',
+    }));
+
+    exportDailyAttendanceToExcel(exportRows, {
+      schoolName: settings.school_name || 'SMP BHINNEKA TUNGGAL IKA',
+      examName: settings.exam_name || 'UJIAN SEKOLAH',
+      academicYear: settings.academic_year || '2024/2025',
+      dayAndDate: formattedDayAndDate,
+      sessionInfo: selectedSessionF4 === 'ALL' ? 'Semua Sesi Ujian' : selectedSessionF4,
+    });
+  };
+
+  const handleExportMatrixExcel = () => {
+    exportAllExamMatrixToExcel(
+      rooms,
+      buildings,
+      uniqueExamSessions,
+      invigilatorSchedules,
+      teachers,
+      {
+        schoolName: settings.school_name || 'SMP BHINNEKA TUNGGAL IKA',
+        examName: settings.exam_name || 'UJIAN SEKOLAH',
+        academicYear: settings.academic_year || '2024/2025',
+      }
+    );
+  };
 
   // -------------------------------------------------------------
   // DATA FOR A5 KARTU PENGAWAS
@@ -164,7 +307,7 @@ export const PrintCenterView: React.FC = () => {
               Pusat Cetak Dokumen Ujian
             </span>
             <span className="text-slate-400">&bull;</span>
-            <span className="text-xs text-slate-500 font-medium">SMP Bhinneka Tunggal Ika</span>
+            <span className="text-xs text-slate-500 font-medium">{settings.school_name || 'SMP Bhinneka Tunggal Ika'}</span>
           </div>
           <h1 className="text-xl font-bold text-slate-900">
             Cetak Dokumen Resmi Pengawas Ujian
@@ -175,13 +318,75 @@ export const PrintCenterView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handlePrint}
-          className="flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-        >
-          <Printer className="w-4 h-4" />
-          <span>Cetak Sekarang (Print / PDF)</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {activeTab === 'f4_attendance' && (
+            <button
+              onClick={handleExportDailyExcel}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+              title="Download Daftar Hadir Pengawas Harian format Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Unduh Excel (.xlsx)</span>
+            </button>
+          )}
+
+          {activeTab === 'all_matrix' && (
+            <button
+              onClick={handleExportMatrixExcel}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+              title="Download Master Matriks Jadwal All Ujian & Lampiran format Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Unduh Excel (.xlsx)</span>
+            </button>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+              title="Cetak langsung menggunakan browser print"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Cetak Sekarang (Print / PDF)</span>
+            </button>
+
+            <a
+              href={getPrintUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+              title="Buka dokumen di tab baru tanpa batas frame untuk langsung mencetak atau simpan sebagai PDF"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Buka di Tab Baru (Cetak / PDF)</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Signatories Quick Reference Strip (Hidden when printing) */}
+      <div className="print:hidden bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between text-xs text-slate-600 gap-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="font-bold text-slate-800 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+            Pejabat Penandatangan Dokumen:
+          </span>
+          <span>
+            Kepala Sekolah: <strong>{settings.principal_name || 'Drs. H. Mulyono, M.Pd.'}</strong> (NIP. {settings.principal_nip || '-'})
+          </span>
+          <span className="text-slate-300">|</span>
+          <span>
+            Ketua Panitia: <strong>{settings.committee_chairman_name || 'Budi Santoso, S.Pd.'}</strong> (NIP. {settings.committee_chairman_nip || '-'})
+          </span>
+          <span className="text-slate-300">|</span>
+          <span>
+            Kota: <strong>{settings.document_city || 'Jakarta'}</strong>
+          </span>
+        </div>
+        <span className="text-[11px] text-blue-600 font-semibold">
+          (Ubah nama/NIP di menu Pengaturan &rarr; B. Pejabat & Penandatangan)
+        </span>
       </div>
 
       {/* Mode Selector Tabs (Hidden when printing) */}
@@ -358,16 +563,26 @@ export const PrintCenterView: React.FC = () => {
         )}
 
         {activeTab === 'all_matrix' && (
-          <div className="flex items-center justify-between text-xs text-slate-600">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 gap-3">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-purple-600" />
+              <CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0" />
               <span>
                 Menampilkan matriks <strong>{activeRooms.length} Ruangan</strong> &times;{' '}
                 <strong>{uniqueExamSessions.length} Sesi Ujian</strong> dengan Kode Pengawas (P01, P02...)
                 dan Lampiran Daftar Nama Guru.
               </span>
             </div>
-            <span className="text-[11px] text-slate-400">Ukuran Rekomendasi: F4 / A4 Landscape</span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleExportMatrixExcel}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                title="Download Excel Matriks & Lampiran Kode Pengawas"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Unduh Matriks (.xlsx)</span>
+              </button>
+              <span className="text-[11px] text-slate-400">Ukuran Rekomendasi: F4 / A4 Landscape</span>
+            </div>
           </div>
         )}
       </div>
@@ -377,23 +592,26 @@ export const PrintCenterView: React.FC = () => {
       {/* ========================================================================= */}
       {activeTab === 'f4_attendance' && (
         <div className="bg-white p-8 rounded-2xl border border-slate-200/80 shadow-sm print:p-0 print:border-none print:shadow-none print-f4-wrapper">
-          {/* Official School Header / Kop Surat */}
-          <div className="text-center pb-4 mb-4 border-b-2 border-black space-y-0.5">
-            <div className="text-base font-black uppercase tracking-wider text-black">
-              PEMERINTAH KABUPATEN / KOTA
+          {/* Official School Header / Kop Surat with School Logo on Left */}
+          <div className="pb-4 mb-4 border-b-2 border-black flex items-center justify-between gap-4">
+            <SchoolKopLogo logoUrl={settings.school_logo} size="lg" />
+
+            <div className="flex-1 text-center space-y-0.5">
+              <div className="text-lg font-black uppercase tracking-widest text-black">
+                {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
+              </div>
+              <div className="text-xs text-black font-medium">
+                {settings.school_address || 'Jl. Pendidikan No. 1, Jakarta'}
+              </div>
+              <div className="pt-2 text-sm font-black uppercase tracking-wide text-black underline">
+                DAFTAR HADIR & BERITA ACARA PENGAWAS RUANG
+              </div>
+              <div className="text-xs font-bold text-black uppercase">
+                {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TAHUN PELAJARAN {settings.academic_year || '2025/2026'}
+              </div>
             </div>
-            <div className="text-lg font-black uppercase tracking-widest text-black">
-              {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
-            </div>
-            <div className="text-xs text-black font-medium">
-              {settings.school_address || 'Jl. Pendidikan No. 1, Jakarta'}
-            </div>
-            <div className="pt-2 text-sm font-black uppercase tracking-wide text-black underline">
-              DAFTAR HADIR & BERITA ACARA PENGAWAS RUANG
-            </div>
-            <div className="text-xs font-bold text-black uppercase">
-              {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TAHUN PELAJARAN {settings.academic_year || '2025/2026'}
-            </div>
+
+            <div className="w-20 shrink-0 hidden sm:block print:block"></div>
           </div>
 
           {/* Metadata Pelaksanaan */}
@@ -401,76 +619,84 @@ export const PrintCenterView: React.FC = () => {
             <div>
               <span>Hari / Tanggal : </span>
               <strong className="text-black">
-                {selectedDateF4 ? formatIndonesianDate(selectedDateF4) : '-'}
+                {selectedDateF4 ? formatIndonesianDayAndDate(selectedDateF4) : '-'}
               </strong>
             </div>
             <div className="text-right">
               <span>Sesi / Waktu : </span>
               <strong className="text-black">
-                {selectedSessionF4 === 'ALL' ? 'Semua Sesi Ujian' : selectedSessionF4}
+                {selectedSessionF4 === 'ALL' ? 'Semua Sesi Ujian (Sesi 1 & 2)' : selectedSessionF4}
               </strong>
             </div>
           </div>
 
-          {/* F4 Attendance Table */}
+          {/* F4 Attendance Table (Susunan Kolom: No, Ruang, Sesi/Waktu, Mapel, Nama Pengawas, Kode, Tanda Tangan, Ket) */}
           <table className="w-full text-left border-collapse border border-black text-xs text-black">
             <thead>
               <tr className="bg-slate-100 print:bg-transparent border-b border-black text-center font-bold">
-                <th className="border border-black py-2 px-2 w-8">No</th>
-                <th className="border border-black py-2 px-3 w-24">Ruang</th>
-                <th className="border border-black py-2 px-3 w-28">Sesi & Jam</th>
+                <th className="border border-black py-2 px-2 w-10">No</th>
+                <th className="border border-black py-2 px-3 w-28">Ruang</th>
+                <th className="border border-black py-2 px-2 w-28">Sesi / Waktu</th>
                 <th className="border border-black py-2 px-3">Mata Pelajaran</th>
-                <th className="border border-black py-2 px-2 w-20">Kode</th>
                 <th className="border border-black py-2 px-3">Nama Pengawas</th>
-                <th className="border border-black py-2 px-3 w-24">Tanda Tangan Hadir</th>
-                <th className="border border-black py-2 px-3 w-24">Tanda Tangan Selesai</th>
+                <th className="border border-black py-2 px-2 w-16">Kode</th>
+                <th className="border border-black py-2 px-3 w-36">Tanda Tangan</th>
                 <th className="border border-black py-2 px-2 w-20">Ket.</th>
               </tr>
             </thead>
             <tbody>
               {f4AttendanceData.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="border border-black py-8 text-center text-slate-500 italic">
-                    Tidak ada jadwal pengawas untuk kriteria tanggal / sesi ini.
+                  <td colSpan={8} className="border border-black py-8 text-center text-slate-500 italic">
+                    Tidak ada jadwal pengawas untuk kriteria tanggal / sesi / gedung ini.
                   </td>
                 </tr>
               ) : (
-                f4AttendanceData.map((item, index) => (
-                  <tr key={item.id} className="border-b border-black">
-                    <td className="border border-black py-2 px-2 text-center">{index + 1}</td>
-                    <td className="border border-black py-2 px-3">
-                      <strong>{item.room?.name}</strong>
-                      <div className="text-[10px]">{item.building?.code || item.building?.name}</div>
-                    </td>
-                    <td className="border border-black py-2 px-3 text-center">
-                      <div>{item.exam?.session}</div>
-                      <div className="text-[10px] font-mono">
-                        {item.exam?.start_time.slice(0, 5)} - {item.exam?.end_time.slice(0, 5)}
-                      </div>
-                    </td>
-                    <td className="border border-black py-2 px-3 font-semibold">
-                      {item.subject?.name}
-                    </td>
-                    <td className="border border-black py-2 px-2 text-center font-black font-mono">
-                      {item.teacher?.invigilator_code || '-'}
-                    </td>
-                    <td className="border border-black py-2 px-3">
-                      <div className="font-bold">{item.teacher?.name || 'Belum ditugaskan'}</div>
-                      <div className="text-[10px] text-slate-600">
-                        {item.role}
-                      </div>
-                    </td>
-                    <td className="border border-black py-2 px-2">
-                      <div className="text-[9px] text-slate-400 mb-4">{index + 1}.</div>
-                    </td>
-                    <td className="border border-black py-2 px-2">
-                      <div className="text-[9px] text-slate-400 mb-4">{index + 1}.</div>
-                    </td>
-                    <td className="border border-black py-2 px-2 text-center text-[10px]">
-                      {item.status}
-                    </td>
-                  </tr>
-                ))
+                f4AttendanceData.map((item, index) => {
+                  const isOdd = (index + 1) % 2 !== 0;
+                  return (
+                    <tr key={`${item.id}_${index}`} className="border-b border-black">
+                      <td className="border border-black py-2 px-2 text-center font-medium">{index + 1}</td>
+                      <td className="border border-black py-2 px-3">
+                        <strong className="block">{item.room?.name || 'Ruang'}</strong>
+                        {item.building?.code && (
+                          <span className="text-[10px] text-slate-600 block">{item.building.code}</span>
+                        )}
+                      </td>
+                      <td className="border border-black py-2 px-2 text-center text-[11px]">
+                        <span className="font-semibold block">{item.exam?.session || '-'}</span>
+                        <span className="text-[10px] text-slate-600 font-mono">
+                          {item.exam?.start_time.slice(0, 5)} - {item.exam?.end_time.slice(0, 5)}
+                        </span>
+                      </td>
+                      <td className="border border-black py-2 px-3 font-medium">
+                        {item.subject?.name || '-'}
+                      </td>
+                      <td className="border border-black py-2 px-3 font-semibold">
+                        {item.teacher?.name || (
+                          <span className="text-slate-400 italic">Belum Ditugaskan</span>
+                        )}
+                      </td>
+                      <td className="border border-black py-2 px-2 text-center font-black font-mono">
+                        {item.teacher?.invigilator_code || '-'}
+                      </td>
+                      <td className="border border-black py-2 px-3 align-middle">
+                        {item.status === 'Hadir' ? (
+                          <div className="text-emerald-800 text-[11px] font-bold text-center">
+                            HADIR
+                          </div>
+                        ) : (
+                          <div className={`text-[10px] ${isOdd ? 'text-left pl-1' : 'text-right pr-2'} min-h-[28px] flex items-end`}>
+                            <span>{index + 1}. ..........................</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="border border-black py-2 px-2 text-center text-[10px]">
+                        {item.status || item.notes || '-'}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -479,18 +705,22 @@ export const PrintCenterView: React.FC = () => {
           <div className="grid grid-cols-2 text-xs text-black font-semibold mt-8 pt-4 gap-8">
             <div className="text-center">
               <div>Mengetahui,</div>
-              <div className="font-bold">Kepala SMP Bhinneka Tunggal Ika</div>
+              <div className="font-bold">Kepala {settings.school_name || 'Sekolah'}</div>
               <div className="h-16"></div>
-              <div className="font-bold underline">Drs. H. Mulyono, M.Pd.</div>
-              <div className="text-[11px]">NIP. 196805121994031005</div>
+              <div className="font-bold underline">{settings.principal_name || 'Drs. H. Mulyono, M.Pd.'}</div>
+              <div className="text-[11px]">
+                {settings.principal_nip ? `NIP. ${settings.principal_nip}` : 'NIP. 196805121994031005'}
+              </div>
             </div>
 
             <div className="text-center">
-              <div>Jakarta, {selectedDateF4 ? formatIndonesianDate(selectedDateF4) : '...'}</div>
+              <div>{settings.document_city || 'Jakarta'}, {selectedDateF4 ? formatIndonesianDate(selectedDateF4) : '...'}</div>
               <div className="font-bold">Ketua Panitia Ujian Sekolah</div>
               <div className="h-16"></div>
-              <div className="font-bold underline">Budi Santoso, S.Pd.</div>
-              <div className="text-[11px]">NIP. 197508142000031002</div>
+              <div className="font-bold underline">{settings.committee_chairman_name || 'Budi Santoso, S.Pd.'}</div>
+              <div className="text-[11px]">
+                {settings.committee_chairman_nip ? `NIP. ${settings.committee_chairman_nip}` : 'NIP. 197508142000031002'}
+              </div>
             </div>
           </div>
         </div>
@@ -531,17 +761,23 @@ export const PrintCenterView: React.FC = () => {
                 className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:p-0 print:border-none print:shadow-none print-a5-card"
                 style={{ breakAfter: 'page' }}
               >
-                {/* A5 Header */}
-                <div className="text-center pb-2 mb-3 border-b-2 border-black space-y-0.5">
-                  <div className="text-xs font-black uppercase tracking-wider text-black">
-                    {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
+                {/* A5 Header with School Logo on Left */}
+                <div className="pb-2 mb-3 border-b-2 border-black flex items-center justify-between gap-3">
+                  <SchoolKopLogo logoUrl={settings.school_logo} size="md" />
+
+                  <div className="flex-1 text-center space-y-0.5">
+                    <div className="text-xs font-black uppercase tracking-wider text-black">
+                      {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
+                    </div>
+                    <div className="text-sm font-black uppercase tracking-wide text-black underline">
+                      KARTU TUGAS PENGAWAS RUANG UJIAN
+                    </div>
+                    <div className="text-[10px] font-bold text-black uppercase">
+                      {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TP {settings.academic_year || '2025/2026'}
+                    </div>
                   </div>
-                  <div className="text-sm font-black uppercase tracking-wide text-black underline">
-                    KARTU TUGAS PENGAWAS RUANG UJIAN
-                  </div>
-                  <div className="text-[10px] font-bold text-black uppercase">
-                    {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TP {settings.academic_year || '2025/2026'}
-                  </div>
+
+                  <div className="w-14 shrink-0 hidden sm:block print:block"></div>
                 </div>
 
                 {/* Teacher Info Box */}
@@ -579,13 +815,12 @@ export const PrintCenterView: React.FC = () => {
                       <th className="border border-black py-1.5 px-2 w-20">Sesi & Jam</th>
                       <th className="border border-black py-1.5 px-2">Mata Pelajaran</th>
                       <th className="border border-black py-1.5 px-2 w-24">Ruang & Gedung</th>
-                      <th className="border border-black py-1.5 px-2 w-20">Peran</th>
                     </tr>
                   </thead>
                   <tbody>
                     {schedules.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="border border-black py-4 text-center text-slate-500 italic">
+                        <td colSpan={5} className="border border-black py-4 text-center text-slate-500 italic">
                           Belum ada jadwal pengawasan yang ditugaskan untuk guru ini.
                         </td>
                       </tr>
@@ -593,8 +828,8 @@ export const PrintCenterView: React.FC = () => {
                       schedules.map((item, idx) => (
                         <tr key={item.id} className="border-b border-black">
                           <td className="border border-black py-1.5 px-2 text-center">{idx + 1}</td>
-                          <td className="border border-black py-1.5 px-2">
-                            {item.exam?.exam_date ? formatIndonesianDate(item.exam.exam_date) : '-'}
+                          <td className="border border-black py-1.5 px-2 font-medium">
+                            {item.exam?.exam_date ? formatIndonesianDayAndDate(item.exam.exam_date, item.exam.day_name) : '-'}
                           </td>
                           <td className="border border-black py-1.5 px-2 text-center font-mono text-[11px]">
                             {item.exam?.session} ({item.exam?.start_time.slice(0, 5)})
@@ -605,31 +840,22 @@ export const PrintCenterView: React.FC = () => {
                           <td className="border border-black py-1.5 px-2 font-bold">
                             {item.room?.name} ({item.building?.code})
                           </td>
-                          <td className="border border-black py-1.5 px-2 text-center font-bold">
-                            {item.role}
-                          </td>
                         </tr>
                       ))
                     )}
                   </tbody>
                 </table>
 
-                {/* Brief Regulations & Signature */}
-                <div className="grid grid-cols-2 text-[10px] text-black gap-4 pt-1">
-                  <div className="border border-black p-2 rounded">
-                    <div className="font-bold underline mb-1">Tata Tertib Pengawas:</div>
-                    <ol className="list-decimal pl-3 space-y-0.5">
-                      <li>Hadir 15 menit sebelum ujian dimulai di ruang panitia.</li>
-                      <li>Membawa kartu tugas dan menandatangani daftar hadir.</li>
-                      <li>Memastikan HP siswa non-aktif selama ujian berlangsung.</li>
-                    </ol>
-                  </div>
-
-                  <div className="text-center text-xs">
-                    <div>Mengetahui,</div>
+                {/* Signature Block (Tata Tertib Dihapus) */}
+                <div className="flex justify-end text-xs text-black pt-4">
+                  <div className="text-center w-56">
+                    <div>{settings.document_city || 'Jakarta'}, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
                     <div className="font-bold">Ketua Panitia Ujian</div>
-                    <div className="h-10"></div>
-                    <div className="font-bold underline">Budi Santoso, S.Pd.</div>
+                    <div className="h-14"></div>
+                    <div className="font-bold underline">{settings.committee_chairman_name || 'Budi Santoso, S.Pd.'}</div>
+                    <div className="text-[11px]">
+                      {settings.committee_chairman_nip ? `NIP. ${settings.committee_chairman_nip}` : 'NIP. 197508142000031002'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -645,16 +871,22 @@ export const PrintCenterView: React.FC = () => {
         <div className="bg-white p-8 rounded-2xl border border-slate-200/80 shadow-sm print:p-0 print:border-none print:shadow-none space-y-8">
           {/* SECTION A: MASTER MATRIKS KODE PENGAWAS */}
           <div className="space-y-4">
-            <div className="text-center pb-3 border-b-2 border-black space-y-0.5">
-              <div className="text-xs font-black uppercase tracking-wider text-black">
-                {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
+            <div className="pb-3 border-b-2 border-black flex items-center justify-between gap-4">
+              <SchoolKopLogo logoUrl={settings.school_logo} size="md" />
+
+              <div className="flex-1 text-center space-y-0.5">
+                <div className="text-xs font-black uppercase tracking-wider text-black">
+                  {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'}
+                </div>
+                <div className="text-base font-black uppercase tracking-wide text-black underline">
+                  MASTER JADWAL PENGAWAS RUANG UJIAN (FORMAT KODE PENGAWAS)
+                </div>
+                <div className="text-xs font-bold text-black uppercase">
+                  {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TAHUN PELAJARAN {settings.academic_year || '2025/2026'}
+                </div>
               </div>
-              <div className="text-base font-black uppercase tracking-wide text-black underline">
-                MASTER JADWAL PENGAWAS RUANG UJIAN (FORMAT KODE PENGAWAS)
-              </div>
-              <div className="text-xs font-bold text-black uppercase">
-                {settings.exam_name || 'UJIAN SEKOLAH'} &bull; TAHUN PELAJARAN {settings.academic_year || '2025/2026'}
-              </div>
+
+              <div className="w-14 shrink-0 hidden sm:block print:block"></div>
             </div>
 
             <div className="overflow-x-auto">
@@ -730,13 +962,19 @@ export const PrintCenterView: React.FC = () => {
 
           {/* SECTION B: LAMPIRAN KODE PENGAWAS DAN NAMA GURU */}
           <div className="pt-6 border-t-2 border-black space-y-4" style={{ breakBefore: 'page' }}>
-            <div className="text-center pb-2 border-b border-black space-y-0.5">
-              <div className="text-sm font-black uppercase tracking-wide text-black underline">
-                LAMPIRAN: DAFTAR KODE PENGAWAS DAN NAMA LENGKAP GURU
+            <div className="pb-2 border-b border-black flex items-center justify-between gap-4">
+              <SchoolKopLogo logoUrl={settings.school_logo} size="sm" />
+
+              <div className="flex-1 text-center space-y-0.5">
+                <div className="text-sm font-black uppercase tracking-wide text-black underline">
+                  LAMPIRAN: DAFTAR KODE PENGAWAS DAN NAMA LENGKAP GURU
+                </div>
+                <div className="text-[11px] font-bold text-black uppercase">
+                  {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'} &bull; {settings.exam_name || 'UJIAN SEKOLAH'}
+                </div>
               </div>
-              <div className="text-[11px] font-bold text-black uppercase">
-                {settings.school_name || 'SMP BHINNEKA TUNGGAL IKA'} &bull; {settings.exam_name || 'UJIAN SEKOLAH'}
-              </div>
+
+              <div className="w-12 shrink-0 hidden sm:block print:block"></div>
             </div>
 
             <div className="overflow-x-auto">
@@ -786,19 +1024,88 @@ export const PrintCenterView: React.FC = () => {
             <div className="grid grid-cols-2 text-xs text-black font-semibold mt-8 pt-4 gap-8">
               <div className="text-center">
                 <div>Mengetahui,</div>
-                <div className="font-bold">Kepala SMP Bhinneka Tunggal Ika</div>
+                <div className="font-bold">Kepala {settings.school_name || 'Sekolah'}</div>
                 <div className="h-16"></div>
-                <div className="font-bold underline">Drs. H. Mulyono, M.Pd.</div>
-                <div className="text-[11px]">NIP. 196805121994031005</div>
+                <div className="font-bold underline">{settings.principal_name || 'Drs. H. Mulyono, M.Pd.'}</div>
+                <div className="text-[11px]">
+                  {settings.principal_nip ? `NIP. ${settings.principal_nip}` : 'NIP. 196805121994031005'}
+                </div>
               </div>
 
               <div className="text-center">
-                <div>Jakarta, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                <div>{settings.document_city || 'Jakarta'}, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
                 <div className="font-bold">Ketua Panitia Ujian Sekolah</div>
                 <div className="h-16"></div>
-                <div className="font-bold underline">Budi Santoso, S.Pd.</div>
-                <div className="text-[11px]">NIP. 197508142000031002</div>
+                <div className="font-bold underline">{settings.committee_chairman_name || 'Budi Santoso, S.Pd.'}</div>
+                <div className="text-[11px]">
+                  {settings.committee_chairman_nip ? `NIP. ${settings.committee_chairman_nip}` : 'NIP. 197508142000031002'}
+                </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dialog for Iframe/Sandbox Environment Guidance */}
+      {isPrintSandboxModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 print:hidden">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                  <Printer className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Cetak Dokumen & Unduh PDF</h3>
+                  <p className="text-xs text-slate-500">Mode cetak resmi resolusi penuh</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPrintSandboxModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3.5 text-xs text-amber-900 space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Batas Keamanan Iframe Browser</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                Aplikasi saat ini berada di dalam jendela preview iframe yang membatasi kotak dialog printer bawaan browser.
+                Untuk mencetak atau menyimpan PDF tanpa watermark atau potongan frame, buka dokumen di tab baru.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <a
+                href={getPrintUrl()}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsPrintSandboxModalOpen(false)}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>Buka di Tab Baru Sekarang (Otomatis Cetak)</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPrintSandboxModalOpen(false);
+                  try {
+                    window.print();
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+              >
+                Coba Cetak di Jendela Ini Lagi
+              </button>
             </div>
           </div>
         </div>

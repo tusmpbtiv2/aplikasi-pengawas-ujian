@@ -25,10 +25,12 @@ import {
   Copy,
   Terminal,
   ExternalLink,
+  FolderKanban,
+  Plus,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { AppUser, UserRole } from '../../types/database';
+import { AppUser, UserRole, ExamProject } from '../../types/database';
 import {
   SUPABASE_SQL_SCHEMA,
   SUPABASE_RLS_FIX_SQL,
@@ -52,6 +54,12 @@ export const SettingsView: React.FC = () => {
     deleteUser,
     backupData,
     resetData,
+    projects,
+    activeProjectId,
+    activeProject,
+    switchProject,
+    createProject,
+    deleteProject,
   } = useData();
 
   const isAdmin = role === 'ADMIN';
@@ -63,14 +71,21 @@ export const SettingsView: React.FC = () => {
   const [academicYear, setAcademicYear] = useState(settings.academic_year || '2024/2025');
   const [semester, setSemester] = useState(settings.semester || 'Genap');
 
-  // Section B: Pengaturan Ujian
+  // Section B: Pejabat & Penandatangan Dokumen (Kepala Sekolah & Panitia Ujian)
+  const [principalName, setPrincipalName] = useState(settings.principal_name || 'Drs. H. Mulyono, M.Pd.');
+  const [principalNip, setPrincipalNip] = useState(settings.principal_nip || '19680512 199403 1 005');
+  const [committeeChairmanName, setCommitteeChairmanName] = useState(settings.committee_chairman_name || 'Budi Santoso, S.Pd.');
+  const [committeeChairmanNip, setCommitteeChairmanNip] = useState(settings.committee_chairman_nip || '19750814 200003 1 002');
+  const [documentCity, setDocumentCity] = useState(settings.document_city || 'Jakarta');
+
+  // Section C: Pengaturan Ujian
   const [examName, setExamName] = useState(settings.exam_name || 'Penilaian Akhir Semester (PAS) Genap');
   const [defaultInvigilators, setDefaultInvigilators] = useState(settings.default_invigilators_per_room || 2);
   const [defaultStartTime, setDefaultStartTime] = useState(settings.default_start_time || '07:30');
   const [defaultDuration, setDefaultDuration] = useState(settings.default_duration || 90);
   const [breakDuration, setBreakDuration] = useState(settings.break_duration || 30);
 
-  // Section C: Pengaturan Sistem
+  // Section D: Pengaturan Sistem
   const [appName, setAppName] = useState(settings.app_name || 'Sistem Manajemen Ujian Sekolah');
   const [theme, setTheme] = useState<'light' | 'slate' | 'blue'>(settings.theme || 'blue');
   const [dateFormat, setDateFormat] = useState<'DD/MM/YYYY' | 'D MMMM YYYY'>(settings.date_format || 'DD/MM/YYYY');
@@ -85,6 +100,19 @@ export const SettingsView: React.FC = () => {
   const [newUserFullName, setNewUserFullName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('PANITIA');
+
+  // Project / Multi-Kegiatan Modal
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [newProjName, setNewProjName] = useState('');
+  const [newProjYear, setNewProjYear] = useState('');
+  const [newProjSemester, setNewProjSemester] = useState('Genap');
+  const [newProjExamName, setNewProjExamName] = useState('');
+  const [newProjDuplicate, setNewProjDuplicate] = useState(true);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+
+  // Delete Project Confirmation Modal
+  const [projectToDelete, setProjectToDelete] = useState<ExamProject | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
 
   // Reset Confirmation Modal
   const [resetModalMode, setResetModalMode] = useState<
@@ -151,6 +179,11 @@ export const SettingsView: React.FC = () => {
       setSchoolLogo(settings.school_logo || '');
       setAcademicYear(settings.academic_year || '2024/2025');
       setSemester(settings.semester || 'Genap');
+      setPrincipalName(settings.principal_name || 'Drs. H. Mulyono, M.Pd.');
+      setPrincipalNip(settings.principal_nip || '19680512 199403 1 005');
+      setCommitteeChairmanName(settings.committee_chairman_name || 'Budi Santoso, S.Pd.');
+      setCommitteeChairmanNip(settings.committee_chairman_nip || '19750814 200003 1 002');
+      setDocumentCity(settings.document_city || 'Jakarta');
       setExamName(settings.exam_name || 'Penilaian Akhir Semester (PAS) Genap');
       setDefaultInvigilators(settings.default_invigilators_per_room || 2);
       setDefaultStartTime(settings.default_start_time || '07:30');
@@ -176,6 +209,11 @@ export const SettingsView: React.FC = () => {
       school_logo: schoolLogo.trim(),
       academic_year: academicYear.trim(),
       semester: semester.trim(),
+      principal_name: principalName.trim(),
+      principal_nip: principalNip.trim(),
+      committee_chairman_name: committeeChairmanName.trim(),
+      committee_chairman_nip: committeeChairmanNip.trim(),
+      document_city: documentCity.trim(),
       exam_name: examName.trim(),
       default_invigilators_per_room: Number(defaultInvigilators),
       default_start_time: defaultStartTime,
@@ -250,6 +288,67 @@ export const SettingsView: React.FC = () => {
     setIsUserModalOpen(false);
     setActionMessage({ type: 'success', text: 'Pengguna baru berhasil ditambahkan.' });
     setTimeout(() => setActionMessage(null), 3000);
+  };
+
+  const handleCreateProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjName.trim()) return;
+
+    setIsCreatingProject(true);
+    const finalExamName = newProjExamName.trim() || newProjName.trim();
+    const finalYear = newProjYear.trim() || academicYear || '2024/2025';
+    const finalSemester = newProjSemester.trim() || semester || 'Genap';
+
+    const res = await createProject({
+      name: newProjName.trim(),
+      exam_name: finalExamName,
+      academic_year: finalYear,
+      semester: finalSemester,
+      duplicateCurrentSchedule: newProjDuplicate,
+    });
+    setIsCreatingProject(false);
+
+    if (res.success) {
+      setIsNewProjectModalOpen(false);
+      setExamName(finalExamName);
+      setAcademicYear(finalYear);
+      setSemester(finalSemester);
+      setActionMessage({
+        type: 'success',
+        text: `Project baru "${newProjName.trim()}" berhasil dibuat dan diaktifkan!`,
+      });
+      setTimeout(() => setActionMessage(null), 4000);
+    } else {
+      setActionMessage({ type: 'error', text: 'Gagal membuat project baru.' });
+    }
+  };
+
+  const handleConfirmDeleteProject = async () => {
+    if (!projectToDelete) return;
+    setIsDeletingProject(true);
+    try {
+      const res = await deleteProject(projectToDelete.id);
+      if (res.success) {
+        setActionMessage({
+          type: 'success',
+          text: `Project "${projectToDelete.name}" berhasil dihapus.`,
+        });
+      } else {
+        setActionMessage({
+          type: 'error',
+          text: res.error || 'Gagal menghapus project.',
+        });
+      }
+      setTimeout(() => setActionMessage(null), 4000);
+    } catch (err: any) {
+      setActionMessage({
+        type: 'error',
+        text: err?.message || 'Terjadi kesalahan saat menghapus project.',
+      });
+    } finally {
+      setIsDeletingProject(false);
+      setProjectToDelete(null);
+    }
   };
 
   return (
@@ -407,21 +506,238 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* SECTION B: PENGATURAN UJIAN */}
+        {/* SECTION B: PEJABAT & PENANDATANGAN DOKUMEN RESMI */}
+        <div id="section-pejabat-tanda-tangan" className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-3 bg-gradient-to-r from-blue-50/60 to-transparent">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-xs">
+                <FileCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900">B. Pejabat & Penandatangan Dokumen Resmi</h2>
+                <p className="text-xs text-slate-500">
+                  Nama Kepala Sekolah, Ketua Panitia Ujian, NIP, dan Kota yang otomatis tercetak pada Daftar Hadir (F4), Kartu Pengawas (A5), dan Berita Acara
+                </p>
+              </div>
+            </div>
+            <span className="hidden sm:inline-flex text-[11px] font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg">
+              Tercetak di Lembar Resmi
+            </span>
+          </div>
+
+          <div className="p-4 sm:p-6 space-y-5">
+            {/* 1. Kepala Sekolah */}
+            <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
+              <div className="flex items-center gap-2 mb-3">
+                <School className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  1. Data Kepala Sekolah (Mengetahui)
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Nama Lengkap & Gelar Kepala Sekolah <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isAdmin}
+                    required
+                    value={principalName}
+                    onChange={(e) => setPrincipalName(e.target.value)}
+                    placeholder="Contoh: Drs. H. Mulyono, M.Pd."
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-medium"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Dicetak pada kolom "Mengetahui, Kepala Sekolah"</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    NIP Kepala Sekolah
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={principalNip}
+                    onChange={(e) => setPrincipalNip(e.target.value)}
+                    placeholder="Contoh: 19680512 199403 1 005"
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-mono font-medium"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Gunakan tanda hubung (-) jika bukan PNS</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Ketua Panitia Ujian */}
+            <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+                  2. Data Ketua Panitia Ujian Sekolah
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Nama Lengkap & Gelar Ketua Panitia <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isAdmin}
+                    required
+                    value={committeeChairmanName}
+                    onChange={(e) => setCommitteeChairmanName(e.target.value)}
+                    placeholder="Contoh: Budi Santoso, S.Pd."
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-medium"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Dicetak pada kolom "Ketua Panitia Ujian Sekolah"</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    NIP Ketua Panitia
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={committeeChairmanNip}
+                    onChange={(e) => setCommitteeChairmanNip(e.target.value)}
+                    placeholder="Contoh: 19750814 200003 1 002"
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-mono font-medium"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Gunakan tanda hubung (-) jika bukan PNS</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Kota Titimangsa */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Kota / Kabupaten Dokumen (Titimangsa) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  required
+                  value={documentCity}
+                  onChange={(e) => setDocumentCity(e.target.value)}
+                  placeholder="Contoh: Jakarta / Surabaya / Bandung"
+                  className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-medium"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Format tanggal cetak: <strong>{documentCity || 'Jakarta'}, [Tanggal Ujian]</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION C: PENGATURAN UJIAN */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-purple-50 text-purple-900 border border-purple-100">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-extrabold text-slate-900">B. Pengaturan Ujian</h2>
+              <h2 className="text-sm font-extrabold text-slate-900">C. Pengaturan Ujian & Manajemen Project</h2>
               <p className="text-xs text-slate-500">
-                Parameter baku untuk penjadwalan ruang, rasio pengawas per ruang, waktu dan jeda istirahat
+                Pilih project kegiatan ujian aktif, parameter rasio pengawas per ruang, waktu dan jeda istirahat
               </p>
             </div>
           </div>
 
-          <div className="p-4 sm:p-6 space-y-4">
+          <div className="p-4 sm:p-6 space-y-5">
+            {/* Project / Event Switcher & Sync Card */}
+            <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-200/80 text-purple-900 mb-1">
+                    <FolderKanban className="w-3.5 h-3.5" />
+                    Project / Kegiatan Ujian Terpilih
+                  </span>
+                  <h3 className="text-sm font-black text-slate-900">
+                    {activeProject?.name || examName}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Semua jadwal ujian, penugasan pengawas, dan dokumen cetak terikat langsung pada project ini.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewProjYear(academicYear);
+                      setNewProjSemester(semester);
+                      setNewProjName('');
+                      setNewProjExamName('');
+                      setIsNewProjectModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Buat Project Baru</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeProject) return;
+                      setProjectToDelete(activeProject);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-xl font-semibold cursor-pointer transition-colors shadow-2xs"
+                    title="Hapus project aktif saat ini"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus Project</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-purple-200/60">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Pilih / Ganti Project yang Dikelola:
+                  </label>
+                  <select
+                    value={activeProjectId}
+                    onChange={async (e) => {
+                      const newId = e.target.value;
+                      if (!newId || newId === activeProjectId) return;
+                      await switchProject(newId);
+                      setActionMessage({
+                        type: 'success',
+                        text: 'Project kegiatan berhasil dialihkan. Data jadwal dan identitas ujian telah disesuaikan.',
+                      });
+                      setTimeout(() => setActionMessage(null), 3500);
+                    }}
+                    className="w-full px-3 py-2 text-xs border border-purple-300 rounded-xl bg-white font-semibold text-purple-950 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.id === activeProjectId ? '★ (Aktif Saat Ini)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-3 text-xs text-slate-600 bg-white/80 rounded-xl p-2.5 border border-purple-200/50">
+                  <div className="flex-1">
+                    <span className="block text-[10px] text-slate-400 font-bold uppercase">Total Sesi Ujian</span>
+                    <span className="font-bold text-purple-900 text-sm">{examSchedules.length} Sesi</span>
+                  </div>
+                  <div className="h-7 w-px bg-purple-200"></div>
+                  <div className="flex-1">
+                    <span className="block text-[10px] text-slate-400 font-bold uppercase">Penugasan Pengawas</span>
+                    <span className="font-bold text-purple-900 text-sm">
+                      {invigilatorSchedules.filter((i) => !!i.teacher_id).length} Guru
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -504,14 +820,14 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* SECTION C: PENGATURAN SISTEM */}
+        {/* SECTION D: PENGATURAN SISTEM */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-100">
               <Palette className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-extrabold text-slate-900">C. Pengaturan Sistem</h2>
+              <h2 className="text-sm font-extrabold text-slate-900">D. Pengaturan Sistem</h2>
               <p className="text-xs text-slate-500">Nama aplikasi, preferensi tema antarmuka, dan format tanggal</p>
             </div>
           </div>
@@ -1219,6 +1535,204 @@ export const SettingsView: React.FC = () => {
                 className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors"
               >
                 Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= NEW PROJECT MODAL ================= */}
+      {isNewProjectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-purple-50 text-purple-700">
+                  <FolderKanban className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Buat Project / Kegiatan Ujian Baru</h3>
+                  <p className="text-xs text-slate-500">
+                    Membuat wadah kegiatan baru untuk memisahkan jadwal & penugasan pengawas
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewProjectModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProjectSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Nama Project / Label Kegiatan <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Asesmen Sumatif Akhir Jenjang (ASAJ)"
+                  value={newProjName}
+                  onChange={(e) => setNewProjName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Nama Resmi Ujian pada Kop Cetak
+                </label>
+                <input
+                  type="text"
+                  placeholder="Jika kosong, akan mengikuti Nama Project di atas"
+                  value={newProjExamName}
+                  onChange={(e) => setNewProjExamName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Tahun Pelajaran</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="2024/2025"
+                    value={newProjYear}
+                    onChange={(e) => setNewProjYear(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Semester</label>
+                  <select
+                    value={newProjSemester}
+                    onChange={(e) => setNewProjSemester(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-purple-500 bg-white"
+                  >
+                    <option value="Ganjil">Ganjil</option>
+                    <option value="Genap">Genap</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="duplicateCurrentSchedule"
+                  checked={newProjDuplicate}
+                  onChange={(e) => setNewProjDuplicate(e.target.checked)}
+                  className="mt-0.5 rounded text-purple-600 focus:ring-purple-500 border-slate-300"
+                />
+                <label htmlFor="duplicateCurrentSchedule" className="text-xs text-purple-950 font-medium cursor-pointer">
+                  Salin seluruh jadwal ujian dan slot penugasan dari project saat ini ke project baru (rekomendasi agar tidak mengulang input dari nol)
+                </label>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNewProjectModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingProject || !newProjName.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-colors shadow-xs disabled:opacity-50"
+                >
+                  {isCreatingProject ? 'Menyiapkan...' : 'Buat & Aktifkan Project'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Project Confirmation Modal */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Konfirmasi Hapus Project</h3>
+                  <p className="text-xs text-slate-500">Tindakan ini tidak dapat dibatalkan</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProjectToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-2">
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Nama Project:</span>
+                <span className="font-bold text-slate-800 text-sm">{projectToDelete.name}</span>
+              </div>
+              <div className="flex items-center gap-4 text-slate-600">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Tahun Pelajaran:</span>
+                  <span className="font-semibold">{projectToDelete.academic_year}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Semester:</span>
+                  <span className="font-semibold">{projectToDelete.semester}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Total Jadwal:</span>
+                  <span className="font-semibold">{projectToDelete.exam_schedules?.length || 0} Sesi</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800">
+              <p className="font-semibold mb-1">Perhatian:</p>
+              <p className="text-[11px] leading-relaxed">
+                {projects.length > 1
+                  ? 'Seluruh jadwal ujian dan penugasan pengawas di dalam project ini akan dihapus permanen. Sistem akan secara otomatis mengaktifkan project lainnya.'
+                  : 'Ini adalah satu-satunya project yang ada. Menghapus project ini akan membersihkan semua data jadwal ujian & penugasan pengawas serta menyiapkan project baru yang bersih.'}
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingProject}
+                onClick={handleConfirmDeleteProject}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                {isDeletingProject ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Ya, Hapus Project</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

@@ -553,13 +553,12 @@ export const InvigilatorPrintModal: React.FC<InvigilatorPrintModalProps> = ({
                     <th className="border border-slate-300 py-2 px-2">Sesi & Waktu</th>
                     <th className="border border-slate-300 py-2 px-3">Mata Pelajaran</th>
                     <th className="border border-slate-300 py-2 px-3">Ruang Ujian</th>
-                    <th className="border border-slate-300 py-2 px-2">Peran</th>
                   </tr>
                 </thead>
                 <tbody>
                   {teacherAssignments.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-4 text-center text-slate-400 italic">
+                      <td colSpan={5} className="py-4 text-center text-slate-400 italic">
                         Guru ini belum memiliki jadwal pengawasan.
                       </td>
                     </tr>
@@ -581,9 +580,6 @@ export const InvigilatorPrintModal: React.FC<InvigilatorPrintModalProps> = ({
                           <span className="block font-normal text-[9px] text-slate-500">
                             {item.building?.name}
                           </span>
-                        </td>
-                        <td className="border border-slate-300 py-2 px-2 text-center font-semibold">
-                          {item.role}
                         </td>
                       </tr>
                     ))

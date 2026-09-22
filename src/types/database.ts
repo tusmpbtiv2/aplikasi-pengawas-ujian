@@ -99,6 +99,15 @@ export interface Settings {
   exam_name: string;
   academic_year: string;
   semester?: string;
+  // Pejabat & Penandatangan Dokumen Resmi
+  principal_name?: string;
+  principal_nip?: string;
+  committee_chairman_name?: string;
+  committee_chairman_nip?: string;
+  committee_secretary_name?: string;
+  document_city?: string;
+  document_date?: string;
+
   default_invigilators_per_room: number;
   default_start_time?: string;
   default_duration?: number;
@@ -109,6 +118,21 @@ export interface Settings {
   app_name?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ExamProject {
+  id: string;
+  name: string; // e.g. "Penilaian Akhir Semester (PAS) Genap 2024/2025"
+  academic_year: string;
+  semester: string;
+  exam_name: string;
+  description?: string;
+  created_at: string;
+  updated_at?: string;
+  is_active?: boolean;
+  exam_schedules: ExamSchedule[];
+  invigilator_schedules: InvigilatorSchedule[];
+  settings_override?: Partial<Settings>;
 }
 
 export interface AppUser {
