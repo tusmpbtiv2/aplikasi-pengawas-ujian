@@ -69,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectMenu,
 }) => {
   const { user, role, signOut, isConfigured, switchRoleForPreview } = useAuth();
-  const { loading, refreshAll, projects, activeProjectId, switchProject } = useData();
+  const { loading, refreshAll, projects, activeProjectId, switchProject, isServerSynced, syncStatus, forceSaveToServer } = useData();
 
   const currentInfo = menuTitles[currentMenu] || {
     title: 'Sistem Manajemen Ujian Sekolah',
@@ -131,6 +131,31 @@ export const Header: React.FC<HeaderProps> = ({
           className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-blue-600' : ''}`} />
+        </button>
+
+        {/* Persistent Server & Local Storage Auto-Saved Indicator */}
+        <button
+          onClick={() => forceSaveToServer()}
+          className={`hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+            syncStatus === 'saving'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : isServerSynced
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+              : 'bg-slate-100 text-slate-700 border-slate-200'
+          }`}
+          title="Status penyimpanan data otomatis (Server & Offline). Klik untuk simpan paksa sekarang."
+        >
+          {syncStatus === 'saving' ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+              <span>Menyimpan ke Server...</span>
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Tersimpan di Server</span>
+            </>
+          )}
         </button>
 
         {/* Supabase Status Pill */}

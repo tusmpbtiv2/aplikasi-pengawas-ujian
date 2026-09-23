@@ -27,18 +27,40 @@ const STORAGE_KEYS = {
   USERS: 'sim_users_data_v2',
   PROJECTS: 'sim_projects_data_v2',
   ACTIVE_PROJECT: 'sim_active_project_id_v2',
+  DELETED_PROJECTS: 'sim_deleted_project_ids_v2',
 };
 
-function getStored<T>(key: string, fallback: T): T {
+function getStoredWithMigration<T>(primaryKey: string, legacyKeys: string[], fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
-    const val = localStorage.getItem(key);
-    if (!val) return fallback;
-    const parsed = JSON.parse(val);
-    return parsed !== null && parsed !== undefined ? parsed : fallback;
-  } catch {
-    return fallback;
+    const val = localStorage.getItem(primaryKey);
+    if (val) {
+      const parsed = JSON.parse(val);
+      if (parsed !== null && parsed !== undefined) return parsed;
+    }
+    // Check legacy / previous version keys to restore user data from earlier sessions
+    for (const legKey of legacyKeys) {
+      const legVal = localStorage.getItem(legKey);
+      if (legVal) {
+        try {
+          const parsed = JSON.parse(legVal);
+          if (parsed !== null && parsed !== undefined) {
+            localStorage.setItem(primaryKey, legVal);
+            return parsed;
+          }
+        } catch {
+          // continue checking other legacy keys
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`Failed reading storage key (${primaryKey}):`, e);
   }
+  return fallback;
+}
+
+function getStored<T>(key: string, fallback: T): T {
+  return getStoredWithMigration(key, [], fallback);
 }
 
 function setStored<T>(key: string, val: T): void {
@@ -475,45 +497,140 @@ interface DataContextType {
   updateSettings: (updates: Partial<Settings>) => Promise<{ success: boolean; error?: string }>;
   backupData: () => any;
   resetData: (mode: 'INVIGILATORS_ONLY' | 'EXAMS_AND_INVIGILATORS' | 'RESET_TO_DEFAULT' | 'ALL_DATA') => Promise<{ success: boolean; message: string }>;
+
+  // Persistent Server Storage & Sync Status
+  isServerSynced: boolean;
+  syncStatus: 'idle' | 'saving' | 'saved' | 'error';
+  forceSaveToServer: () => Promise<boolean>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [projects, setProjects] = useState<ExamProject[]>(() =>
-    getStored<ExamProject[]>(STORAGE_KEYS.PROJECTS, INITIAL_PROJECTS)
-  );
-  const [activeProjectId, setActiveProjectId] = useState<string>(() =>
-    getStored<string>(STORAGE_KEYS.ACTIVE_PROJECT, INITIAL_PROJECTS[0]?.id || 'proj-pas-genap-2025')
+  const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>(() =>
+    getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], [])
   );
 
+  const [projects, setProjects] = useState<ExamProject[]>(() => {
+    const deleted = getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], []);
+    const stored = getStoredWithMigration<ExamProject[]>(
+      STORAGE_KEYS.PROJECTS,
+      ['sim_projects_data', 'sim_projects', 'sim_projects_v1'],
+      []
+    );
+    if (stored && stored.length > 0) {
+      const valid = stored.filter((p) => !deleted.includes(p.id));
+      if (valid.length > 0) return valid;
+    }
+    const filteredInitial = INITIAL_PROJECTS.filter((p) => !deleted.includes(p.id));
+    return filteredInitial.length > 0
+      ? filteredInitial
+      : [
+          {
+            id: 'proj_' + Date.now(),
+            name: 'Ujian Sekolah',
+            exam_name: 'UJIAN SEKOLAH',
+            academic_year: '2024/2025',
+            semester: 'Genap',
+            created_at: new Date().toISOString(),
+            is_active: true,
+            exam_schedules: [],
+            invigilator_schedules: [],
+          },
+        ];
+  });
+
+  const [activeProjectId, setActiveProjectId] = useState<string>(() => {
+    const deleted = getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], []);
+    const storedActive = getStoredWithMigration<string>(
+      STORAGE_KEYS.ACTIVE_PROJECT,
+      ['sim_active_project_id', 'sim_active_project'],
+      ''
+    );
+    if (storedActive && !deleted.includes(storedActive)) {
+      return storedActive;
+    }
+    const storedProjects = getStoredWithMigration<ExamProject[]>(
+      STORAGE_KEYS.PROJECTS,
+      ['sim_projects_data', 'sim_projects'],
+      []
+    );
+    const valid = storedProjects.filter((p) => !deleted.includes(p.id));
+    if (valid.length > 0) return valid[0].id;
+    const filteredInit = INITIAL_PROJECTS.filter((p) => !deleted.includes(p.id));
+    return filteredInit[0]?.id || 'proj-pas-genap-2025';
+  });
+
   const [teachers, setTeachers] = useState<Teacher[]>(() =>
-    getStored<Teacher[]>(STORAGE_KEYS.TEACHERS, INITIAL_TEACHERS)
+    getStoredWithMigration<Teacher[]>(STORAGE_KEYS.TEACHERS, ['sim_teachers_data', 'sim_teachers'], INITIAL_TEACHERS)
   );
   const [buildings, setBuildings] = useState<Building[]>(() =>
-    getStored<Building[]>(STORAGE_KEYS.BUILDINGS, INITIAL_BUILDINGS)
+    getStoredWithMigration<Building[]>(STORAGE_KEYS.BUILDINGS, ['sim_buildings_data', 'sim_buildings'], INITIAL_BUILDINGS)
   );
   const [rooms, setRooms] = useState<Room[]>(() =>
-    getStored<Room[]>(STORAGE_KEYS.ROOMS, INITIAL_ROOMS)
+    getStoredWithMigration<Room[]>(STORAGE_KEYS.ROOMS, ['sim_rooms_data', 'sim_rooms'], INITIAL_ROOMS)
   );
   const [subjects, setSubjects] = useState<Subject[]>(() =>
-    getStored<Subject[]>(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS)
+    getStoredWithMigration<Subject[]>(STORAGE_KEYS.SUBJECTS, ['sim_subjects_data', 'sim_subjects'], INITIAL_SUBJECTS)
   );
-  const [examSchedules, setExamSchedules] = useState<ExamSchedule[]>(() =>
-    getStored<ExamSchedule[]>(STORAGE_KEYS.EXAM_SCHEDULES, INITIAL_EXAM_SCHEDULES)
-  );
-  const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(() =>
-    getStored<InvigilatorSchedule[]>(STORAGE_KEYS.INVIGILATOR_SCHEDULES, INITIAL_INVIGILATOR_SCHEDULES)
-  );
+
+  const [examSchedules, setExamSchedules] = useState<ExamSchedule[]>(() => {
+    const storedProjects = getStoredWithMigration<ExamProject[]>(
+      STORAGE_KEYS.PROJECTS,
+      ['sim_projects_data', 'sim_projects'],
+      []
+    );
+    const storedActiveId = getStoredWithMigration<string>(
+      STORAGE_KEYS.ACTIVE_PROJECT,
+      ['sim_active_project_id'],
+      ''
+    );
+    const proj = storedProjects?.find((p) => p.id === storedActiveId) || storedProjects?.[0];
+    if (proj && Array.isArray(proj.exam_schedules) && proj.exam_schedules.length > 0) {
+      return proj.exam_schedules;
+    }
+    return getStoredWithMigration<ExamSchedule[]>(
+      STORAGE_KEYS.EXAM_SCHEDULES,
+      ['sim_exam_schedules_data', 'sim_exam_schedules'],
+      INITIAL_EXAM_SCHEDULES
+    );
+  });
+
+  const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(() => {
+    const storedProjects = getStoredWithMigration<ExamProject[]>(
+      STORAGE_KEYS.PROJECTS,
+      ['sim_projects_data', 'sim_projects'],
+      []
+    );
+    const storedActiveId = getStoredWithMigration<string>(
+      STORAGE_KEYS.ACTIVE_PROJECT,
+      ['sim_active_project_id'],
+      ''
+    );
+    const proj = storedProjects?.find((p) => p.id === storedActiveId) || storedProjects?.[0];
+    if (proj && Array.isArray(proj.invigilator_schedules) && proj.invigilator_schedules.length > 0) {
+      return proj.invigilator_schedules;
+    }
+    return getStoredWithMigration<InvigilatorSchedule[]>(
+      STORAGE_KEYS.INVIGILATOR_SCHEDULES,
+      ['sim_invigilator_schedules_data', 'sim_invigilator_schedules'],
+      INITIAL_INVIGILATOR_SCHEDULES
+    );
+  });
+
   const [settings, setSettings] = useState<Settings>(() =>
-    getStored<Settings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS)
+    getStoredWithMigration<Settings>(STORAGE_KEYS.SETTINGS, ['sim_settings_data', 'sim_settings'], INITIAL_SETTINGS)
   );
   const [users, setUsers] = useState<AppUser[]>(() =>
-    getStored<AppUser[]>(STORAGE_KEYS.USERS, INITIAL_USERS)
+    getStoredWithMigration<AppUser[]>(STORAGE_KEYS.USERS, ['sim_users_data', 'sim_users'], INITIAL_USERS)
   );
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Server persistence state
+  const [isServerSynced, setIsServerSynced] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // Synchronize state changes to localStorage
   useEffect(() => { setStored(STORAGE_KEYS.TEACHERS, teachers); }, [teachers]);
@@ -526,6 +643,28 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => { setStored(STORAGE_KEYS.USERS, users); }, [users]);
   useEffect(() => { setStored(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => { setStored(STORAGE_KEYS.ACTIVE_PROJECT, activeProjectId); }, [activeProjectId]);
+  useEffect(() => { setStored(STORAGE_KEYS.DELETED_PROJECTS, deletedProjectIds); }, [deletedProjectIds]);
+
+  // Keep active project schedules synchronized in projects array
+  useEffect(() => {
+    if (!activeProjectId) return;
+    setProjects((prev) => {
+      const idx = prev.findIndex((p) => p.id === activeProjectId);
+      if (idx === -1) return prev;
+      const current = prev[idx];
+      if (current.exam_schedules === examSchedules && current.invigilator_schedules === invigilatorSchedules) {
+        return prev;
+      }
+      const updated = [...prev];
+      updated[idx] = {
+        ...current,
+        exam_schedules: examSchedules,
+        invigilator_schedules: invigilatorSchedules,
+        updated_at: new Date().toISOString(),
+      };
+      return updated;
+    });
+  }, [examSchedules, invigilatorSchedules, activeProjectId]);
 
   const activeProject = useMemo(() => {
     return projects.find((p) => p.id === activeProjectId) || projects[0];
@@ -579,6 +718,149 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  // Save current application state to persistent server API (/api/data)
+  const saveToServer = useCallback(
+    async (overrides?: Record<string, any>): Promise<boolean> => {
+      try {
+        setSyncStatus('saving');
+        const payload = {
+          projects,
+          activeProjectId,
+          deletedProjectIds,
+          examSchedules,
+          invigilatorSchedules,
+          settings,
+          teachers,
+          buildings,
+          rooms,
+          subjects,
+          users,
+          clientTimestamp: new Date().toISOString(),
+          ...overrides,
+        };
+        const res = await fetch('/api/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          setSyncStatus('saved');
+          setIsServerSynced(true);
+          return true;
+        } else {
+          setSyncStatus('error');
+          return false;
+        }
+      } catch (err) {
+        console.warn('[DataContext] Save to server error:', err);
+        setSyncStatus('error');
+        return false;
+      }
+    },
+    [
+      projects,
+      activeProjectId,
+      deletedProjectIds,
+      examSchedules,
+      invigilatorSchedules,
+      settings,
+      teachers,
+      buildings,
+      rooms,
+      subjects,
+      users,
+    ]
+  );
+
+  const forceSaveToServer = useCallback(async () => {
+    return await saveToServer();
+  }, [saveToServer]);
+
+  // Load and hydrate from persistent server API on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadServerData() {
+      try {
+        const res = await fetch('/api/data');
+        if (!res.ok) return;
+        const result = await res.json();
+        if (!isMounted) return;
+
+        if (result.initialized && result.data) {
+          const s = result.data;
+          const serverDeleted: string[] = Array.isArray(s.deletedProjectIds) ? s.deletedProjectIds : [];
+          if (serverDeleted.length > 0) {
+            setDeletedProjectIds((prev) => Array.from(new Set([...prev, ...serverDeleted])));
+          }
+
+          if (Array.isArray(s.projects) && s.projects.length > 0) {
+            const activeProjects = s.projects.filter((p: ExamProject) => !serverDeleted.includes(p.id));
+            if (activeProjects.length > 0) {
+              setProjects(activeProjects);
+              const targetId =
+                s.activeProjectId && activeProjects.some((p: ExamProject) => p.id === s.activeProjectId)
+                  ? s.activeProjectId
+                  : activeProjects[0].id;
+              setActiveProjectId(targetId);
+
+              const currentProj = activeProjects.find((p: ExamProject) => p.id === targetId) || activeProjects[0];
+              if (Array.isArray(currentProj.exam_schedules) && currentProj.exam_schedules.length > 0) {
+                setExamSchedules(currentProj.exam_schedules);
+              } else if (Array.isArray(s.examSchedules)) {
+                setExamSchedules(s.examSchedules);
+              }
+
+              if (Array.isArray(currentProj.invigilator_schedules) && currentProj.invigilator_schedules.length > 0) {
+                setInvigilatorSchedules(currentProj.invigilator_schedules);
+              } else if (Array.isArray(s.invigilatorSchedules)) {
+                setInvigilatorSchedules(s.invigilatorSchedules);
+              }
+            }
+          }
+
+          if (s.settings) setSettings(s.settings);
+          if (Array.isArray(s.teachers) && s.teachers.length > 0) setTeachers(s.teachers);
+          if (Array.isArray(s.buildings) && s.buildings.length > 0) setBuildings(s.buildings);
+          if (Array.isArray(s.rooms) && s.rooms.length > 0) setRooms(s.rooms);
+          if (Array.isArray(s.subjects) && s.subjects.length > 0) setSubjects(s.subjects);
+          if (Array.isArray(s.users) && s.users.length > 0) setUsers(s.users);
+
+          setIsServerSynced(true);
+        } else {
+          // If server data not yet initialized, sync initial local dataset to server
+          saveToServer();
+        }
+      } catch (err) {
+        console.warn('[DataContext] Server hydration fallback to local storage:', err);
+      }
+    }
+    loadServerData();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Debounced auto-save to server on state modifications
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveToServer();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [
+    projects,
+    activeProjectId,
+    deletedProjectIds,
+    examSchedules,
+    invigilatorSchedules,
+    settings,
+    teachers,
+    buildings,
+    rooms,
+    subjects,
+    users,
+    saveToServer,
+  ]);
 
   // Conflict detection
   const conflicts = useMemo<ConflictDetail[]>(() => {
@@ -1606,20 +1888,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!target) return false;
 
     // Snapshot current active project's schedules
-    setProjects((prev) =>
-      prev.map((proj) =>
-        proj.id === activeProjectId
-          ? {
-              ...proj,
-              exam_schedules: [...examSchedules],
-              invigilator_schedules: [...invigilatorSchedules],
-              updated_at: new Date().toISOString(),
-            }
-          : proj
-      )
+    const updatedProjects = projects.map((proj) =>
+      proj.id === activeProjectId
+        ? {
+            ...proj,
+            exam_schedules: [...examSchedules],
+            invigilator_schedules: [...invigilatorSchedules],
+            updated_at: new Date().toISOString(),
+          }
+        : proj
     );
 
-    // Switch to target project
+    setProjects(updatedProjects);
     setActiveProjectId(targetId);
     setExamSchedules(target.exam_schedules || []);
     setInvigilatorSchedules(target.invigilator_schedules || []);
@@ -1631,6 +1911,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       academic_year: target.academic_year || prev.academic_year,
       semester: target.semester || prev.semester,
     }));
+
+    await saveToServer({
+      projects: updatedProjects,
+      activeProjectId: targetId,
+      examSchedules: target.exam_schedules || [],
+      invigilatorSchedules: target.invigilator_schedules || [],
+    });
 
     return true;
   };
@@ -1661,16 +1948,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       invigilator_schedules: newInvSchedules,
     };
 
-    // Save current active project state and prepend new project
-    setProjects((prev) => {
-      const updatedCurrent = prev.map((p) =>
-        p.id === activeProjectId
-          ? { ...p, exam_schedules: [...examSchedules], invigilator_schedules: [...invigilatorSchedules] }
-          : p
-      );
-      return [newProj, ...updatedCurrent];
-    });
+    const updatedCurrent = projects.map((p) =>
+      p.id === activeProjectId
+        ? { ...p, exam_schedules: [...examSchedules], invigilator_schedules: [...invigilatorSchedules] }
+        : p
+    );
+    const updatedProjects = [newProj, ...updatedCurrent];
 
+    setProjects(updatedProjects);
     setActiveProjectId(newId);
     setExamSchedules(newExamSchedules);
     setInvigilatorSchedules(newInvSchedules);
@@ -1682,13 +1967,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       semester: params.semester,
     }));
 
+    await saveToServer({
+      projects: updatedProjects,
+      activeProjectId: newId,
+      examSchedules: newExamSchedules,
+      invigilatorSchedules: newInvSchedules,
+    });
+
     return { success: true, id: newId };
   };
 
   const updateProject = async (id: string, updates: Partial<ExamProject>): Promise<{ success: boolean }> => {
-    setProjects((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p))
-    );
+    const updated = projects.map((p) => (p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p));
+    setProjects(updated);
     if (id === activeProjectId && (updates.name || updates.exam_name || updates.academic_year || updates.semester)) {
       setSettings((prev) => ({
         ...prev,
@@ -1697,10 +1988,16 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         semester: updates.semester || prev.semester,
       }));
     }
+    await saveToServer({ projects: updated });
     return { success: true };
   };
 
   const deleteProject = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    // 1. Permanently record project ID in deleted list so fallback or initial data NEVER restores it
+    const updatedDeleted = Array.from(new Set([...deletedProjectIds, id]));
+    setDeletedProjectIds(updatedDeleted);
+    setStored(STORAGE_KEYS.DELETED_PROJECTS, updatedDeleted);
+
     if (projects.length <= 1) {
       const freshProject: ExamProject = {
         id: 'proj_' + Date.now(),
@@ -1709,6 +2006,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         academic_year: settings.academic_year || '2024/2025',
         semester: settings.semester || 'Genap',
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_active: true,
         exam_schedules: [],
         invigilator_schedules: [],
       };
@@ -1722,15 +2021,32 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         academic_year: freshProject.academic_year,
         semester: freshProject.semester,
       }));
+      await saveToServer({
+        projects: [freshProject],
+        activeProjectId: freshProject.id,
+        deletedProjectIds: updatedDeleted,
+        examSchedules: [],
+        invigilatorSchedules: [],
+      });
       return { success: true };
     }
+
     const remaining = projects.filter((p) => p.id !== id);
     setProjects(remaining);
+
+    let nextActiveId = activeProjectId;
+    let nextExamSchedules = examSchedules;
+    let nextInvSchedules = invigilatorSchedules;
+
     if (activeProjectId === id) {
       const next = remaining[0];
+      nextActiveId = next.id;
+      nextExamSchedules = next.exam_schedules || [];
+      nextInvSchedules = next.invigilator_schedules || [];
+
       setActiveProjectId(next.id);
-      setExamSchedules(next.exam_schedules || []);
-      setInvigilatorSchedules(next.invigilator_schedules || []);
+      setExamSchedules(nextExamSchedules);
+      setInvigilatorSchedules(nextInvSchedules);
       setSettings((prev) => ({
         ...prev,
         exam_name: next.exam_name || next.name,
@@ -1738,6 +2054,15 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         semester: next.semester,
       }));
     }
+
+    await saveToServer({
+      projects: remaining,
+      activeProjectId: nextActiveId,
+      deletedProjectIds: updatedDeleted,
+      examSchedules: nextExamSchedules,
+      invigilatorSchedules: nextInvSchedules,
+    });
+
     return { success: true };
   };
 
@@ -1866,6 +2191,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteUser,
         backupData,
         resetData,
+        isServerSynced,
+        syncStatus,
+        forceSaveToServer,
       }}
     >
       {children}
