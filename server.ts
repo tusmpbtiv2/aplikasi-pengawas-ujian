@@ -79,7 +79,7 @@ async function fetchFullDataFromSupabase() {
     };
 
     const defaultSettings = settingsRes.data || {
-      id: 'settings-default',
+      id: 'a0000000-0000-0000-0000-000000000001',
       school_name: 'SMP BHINNEKA TUNGGAL IKA',
       school_address: 'Jl. Raya Pendidikan No. 01',
       exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',

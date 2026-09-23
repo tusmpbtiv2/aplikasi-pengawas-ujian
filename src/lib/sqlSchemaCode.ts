@@ -207,15 +207,60 @@ CREATE TRIGGER on_auth_user_created
 -- ========================================================================
 
 -- Settings
-INSERT INTO public.settings (id, school_name, school_address, exam_name, academic_year, default_invigilators_per_room)
+INSERT INTO public.settings (
+  id,
+  school_name,
+  school_address,
+  exam_name,
+  academic_year,
+  semester,
+  principal_name,
+  principal_nip,
+  committee_chairman_name,
+  committee_chairman_nip,
+  committee_secretary_name,
+  document_city,
+  document_date,
+  default_invigilators_per_room,
+  default_start_time,
+  default_duration,
+  break_duration,
+  honor_per_session
+)
 VALUES (
   'a0000000-0000-0000-0000-000000000001',
   'SMP BHINNEKA TUNGGAL IKA',
-  'Jl. Pendidikan No. 45, Jakarta',
-  'Penilaian Akhir Semester (PAS) Genap',
-  '2024/2025',
-  2
-) ON CONFLICT (id) DO NOTHING;
+  'Jl. Raya Pendidikan No. 01',
+  'ASESMEN SUMATIF / UJIAN SEKOLAH',
+  '2026/2027',
+  'Ganjil',
+  'Drs. Moh. Mas''ud, S.Pd, M.Pd',
+  'P - 01',
+  'Muhammad Ainul Yaqin, M.Pd.I',
+  'P - 02',
+  'Mochammad Amiruddin, S.Pd.I',
+  'Jombang',
+  '2026-10-10',
+  1,
+  '07:30:00',
+  60,
+  30,
+  50000
+) ON CONFLICT (id) DO UPDATE SET
+  school_name = EXCLUDED.school_name,
+  school_address = EXCLUDED.school_address,
+  exam_name = EXCLUDED.exam_name,
+  academic_year = EXCLUDED.academic_year,
+  semester = EXCLUDED.semester,
+  principal_name = EXCLUDED.principal_name,
+  principal_nip = EXCLUDED.principal_nip,
+  committee_chairman_name = EXCLUDED.committee_chairman_name,
+  committee_chairman_nip = EXCLUDED.committee_chairman_nip,
+  committee_secretary_name = EXCLUDED.committee_secretary_name,
+  document_city = EXCLUDED.document_city,
+  document_date = EXCLUDED.document_date,
+  default_invigilators_per_room = EXCLUDED.default_invigilators_per_room,
+  honor_per_session = EXCLUDED.honor_per_session;
 
 -- 2 Gedung
 INSERT INTO public.buildings (id, name, code, address, notes)

@@ -417,7 +417,7 @@ export const INITIAL_INVIGILATOR_SCHEDULES: InvigilatorSchedule[] = (() => {
 })();
 
 export const INITIAL_SETTINGS: Settings = {
-  id: 'settings-default',
+  id: 'a0000000-0000-0000-0000-000000000001',
   school_name: 'SMP BHINNEKA TUNGGAL IKA',
   school_address: 'Jl. Raya Pendidikan No. 01',
   school_logo: '',

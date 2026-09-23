@@ -70,9 +70,9 @@ CREATE TABLE IF NOT EXISTS public.subjects (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,
   code TEXT NOT NULL UNIQUE,
-  grade_level INT, -- 7, 8, 9, atau NULL jika umum
+  grade_level INT,
   grade_levels TEXT[] DEFAULT ARRAY['7', '8', '9']::TEXT[],
-  default_duration INT DEFAULT 90 NOT NULL, -- durasi default dalam menit
+  default_duration INT DEFAULT 90 NOT NULL,
   active BOOLEAN NOT NULL DEFAULT true,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS public.subjects (
 CREATE TABLE IF NOT EXISTS public.exam_schedules (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   exam_date DATE NOT NULL,
-  day_name TEXT NOT NULL, -- e.g. 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'
+  day_name TEXT NOT NULL,
   subject_id UUID NOT NULL REFERENCES public.subjects(id) ON DELETE CASCADE,
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
@@ -120,21 +120,39 @@ CREATE TABLE IF NOT EXISTS public.invigilator_schedules (
 CREATE TABLE IF NOT EXISTS public.settings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   school_name TEXT NOT NULL DEFAULT 'SMP BHINNEKA TUNGGAL IKA',
-  school_address TEXT NOT NULL DEFAULT 'Jl. Pendidikan No. 45, Jakarta',
+  school_address TEXT NOT NULL DEFAULT 'Jl. Raya Pendidikan No. 01',
   school_logo TEXT,
-  exam_name TEXT NOT NULL DEFAULT 'Penilaian Akhir Semester (PAS) Genap',
-  academic_year TEXT NOT NULL DEFAULT '2024/2025',
-  semester TEXT NOT NULL DEFAULT 'Genap',
-  default_invigilators_per_room INTEGER NOT NULL DEFAULT 2,
+  exam_name TEXT NOT NULL DEFAULT 'ASESMEN SUMATIF / UJIAN SEKOLAH',
+  academic_year TEXT NOT NULL DEFAULT '2026/2027',
+  semester TEXT NOT NULL DEFAULT 'Ganjil',
+  principal_name TEXT DEFAULT 'Drs. Moh. Mas''ud, S.Pd, M.Pd',
+  principal_nip TEXT DEFAULT 'P - 01',
+  committee_chairman_name TEXT DEFAULT 'Muhammad Ainul Yaqin, M.Pd.I',
+  committee_chairman_nip TEXT DEFAULT 'P - 02',
+  committee_secretary_name TEXT DEFAULT 'Mochammad Amiruddin, S.Pd.I',
+  document_city TEXT DEFAULT 'Jombang',
+  document_date DATE DEFAULT '2026-10-10',
+  honor_per_session INTEGER DEFAULT 50000,
+  default_invigilators_per_room INTEGER NOT NULL DEFAULT 1,
   default_start_time TIME DEFAULT '07:30:00' NOT NULL,
-  default_duration INTEGER DEFAULT 90 NOT NULL,
+  default_duration INTEGER DEFAULT 60 NOT NULL,
   break_duration INTEGER DEFAULT 30 NOT NULL,
-  app_name TEXT DEFAULT 'Sistem Manajemen Ujian Sekolah' NOT NULL,
+  app_name TEXT DEFAULT 'Sistem Manajemen Ujian & Pengawas Ruang' NOT NULL,
   theme TEXT DEFAULT 'blue' NOT NULL,
   date_format TEXT DEFAULT 'DD/MM/YYYY' NOT NULL,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
+
+-- Migrasi jika tabel settings sudah ada di Supabase
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_name TEXT DEFAULT 'Drs. Moh. Mas''ud, S.Pd, M.Pd';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS principal_nip TEXT DEFAULT 'P - 01';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_name TEXT DEFAULT 'Muhammad Ainul Yaqin, M.Pd.I';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_chairman_nip TEXT DEFAULT 'P - 02';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS committee_secretary_name TEXT DEFAULT 'Mochammad Amiruddin, S.Pd.I';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_city TEXT DEFAULT 'Jombang';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS document_date DATE DEFAULT '2026-10-10';
+ALTER TABLE public.settings ADD COLUMN IF NOT EXISTS honor_per_session INTEGER DEFAULT 50000;
 
 -- ------------------------------------------------------------------------
 -- ROW LEVEL SECURITY (RLS)
@@ -148,8 +166,7 @@ ALTER TABLE public.exam_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invigilator_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
--- Allow full read & write access for public (anon & authenticated)
--- Ensures CSV/Excel import, automated scheduling, and all app operations work seamlessly
+-- Hak Akses Penuh untuk anon & authenticated
 CREATE POLICY "Allow public all access profiles" ON public.profiles FOR ALL TO public USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access teachers" ON public.teachers FOR ALL TO public USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access buildings" ON public.buildings FOR ALL TO public USING (true) WITH CHECK (true);
@@ -160,7 +177,7 @@ CREATE POLICY "Allow public all access invigilator_schedules" ON public.invigila
 CREATE POLICY "Allow public all access settings" ON public.settings FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- ------------------------------------------------------------------------
--- TRIGGER: Handle new user registration from auth.users -> public.profiles
+-- TRIGGER: Otomatis Tambah profiles ketika User Daftar di auth.users
 -- ------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -185,79 +202,61 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
 -- ========================================================================
--- SEED DATA CONTOH
--- - 2 Gedung
--- - Beberapa Ruang
--- - Beberapa Guru
--- - Beberapa Mata Pelajaran
--- - Beberapa Jadwal Ujian
--- - Default Settings
+-- SEED DATA AWAL (SMP BHINNEKA TUNGGAL IKA)
 -- ========================================================================
 
 -- Settings
-INSERT INTO public.settings (id, school_name, school_address, exam_name, academic_year, default_invigilators_per_room)
+INSERT INTO public.settings (
+  id,
+  school_name,
+  school_address,
+  exam_name,
+  academic_year,
+  semester,
+  principal_name,
+  principal_nip,
+  committee_chairman_name,
+  committee_chairman_nip,
+  committee_secretary_name,
+  document_city,
+  document_date,
+  default_invigilators_per_room,
+  default_start_time,
+  default_duration,
+  break_duration,
+  honor_per_session
+)
 VALUES (
   'a0000000-0000-0000-0000-000000000001',
   'SMP BHINNEKA TUNGGAL IKA',
-  'Jl. Pendidikan No. 45, Jakarta',
-  'Penilaian Akhir Semester (PAS) Genap',
-  '2024/2025',
-  1
-) ON CONFLICT (id) DO NOTHING;
-
--- 2 Gedung
-INSERT INTO public.buildings (id, name, code, address, notes)
-VALUES 
-  ('b0000000-0000-0000-0000-000000000001', 'Gedung Utama A', 'GDA', 'Lantai 1-2 Sayap Barat', 'Gedung ruang kelas VII dan VIII'),
-  ('b0000000-0000-0000-0000-000000000002', 'Gedung Timur B', 'GDB', 'Lantai 1-2 Sayap Timur', 'Gedung ruang kelas IX dan Lab')
-ON CONFLICT (code) DO NOTHING;
-
--- Beberapa Ruang
-INSERT INTO public.rooms (id, building_id, name, code, capacity, active, notes)
-VALUES
-  ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'Ruang 01 (Kelas VII-A)', 'R-01', 32, true, 'Dilengkapi pendingin ruangan'),
-  ('c0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'Ruang 02 (Kelas VII-B)', 'R-02', 32, true, 'Kapasitas penuh 32 siswa'),
-  ('c0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'Ruang 03 (Kelas VIII-A)', 'R-03', 30, true, 'Ruang ujian tengah'),
-  ('c0000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000002', 'Ruang 04 (Kelas IX-A)', 'R-04', 30, true, 'Gedung B Lantai 1'),
-  ('c0000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000002', 'Ruang 05 (Lab Komputer)', 'R-05', 36, true, 'Untuk ujian berbasis komputer')
-ON CONFLICT (code) DO NOTHING;
-
--- Beberapa Guru
-INSERT INTO public.teachers (id, name, gender, employee_number, invigilator_code, active, available_days, notes)
-VALUES
-  ('d0000000-0000-0000-0000-000000000001', 'Drs. H. Ahmad Sudrajat, M.Pd.', 'Laki-laki', '197503152000031002', 'P01', true, ARRAY['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'], 'Guru Senior Matematika'),
-  ('d0000000-0000-0000-0000-000000000002', 'Siti Rahmawati, S.Pd.', 'Perempuan', '198207122008012015', 'P02', true, ARRAY['Senin', 'Selasa', 'Rabu', 'Kamis'], 'Guru Bahasa Indonesia'),
-  ('d0000000-0000-0000-0000-000000000003', 'Budi Santoso, M.Si.', 'Laki-laki', '198511242010011009', 'P03', true, ARRAY['Senin', 'Rabu', 'Kamis', 'Jumat'], 'Guru IPA Terpadu'),
-  ('d0000000-0000-0000-0000-000000000004', 'Nurul Hidayah, S.Pd.', 'Perempuan', '199004182014022008', 'P04', true, ARRAY['Senin', 'Selasa', 'Kamis', 'Jumat'], 'Guru Bahasa Inggris'),
-  ('d0000000-0000-0000-0000-000000000005', 'Eko Prasetyo, S.Pd.', 'Laki-laki', '198809052012011011', 'P05', true, ARRAY['Senin', 'Selasa', 'Rabu', 'Jumat'], 'Guru IPS & PKn'),
-  ('d0000000-0000-0000-0000-000000000006', 'Dewi Lestari, S.Pd.', 'Perempuan', '199301202019032014', 'P06', true, ARRAY['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat'], 'Guru Seni Budaya')
-ON CONFLICT DO NOTHING;
-
--- Beberapa Mata Pelajaran
-INSERT INTO public.subjects (id, name, code)
-VALUES
-  ('e0000000-0000-0000-0000-000000000001', 'Bahasa Indonesia', 'BIN-01'),
-  ('e0000000-0000-0000-0000-000000000002', 'Matematika', 'MTK-02'),
-  ('e0000000-0000-0000-0000-000000000003', 'Ilmu Pengetahuan Alam (IPA)', 'IPA-03'),
-  ('e0000000-0000-0000-0000-000000000004', 'Bahasa Inggris', 'BIG-04'),
-  ('e0000000-0000-0000-0000-000000000005', 'Pendidikan Pancasila & Kewarganegaraan (PPKn)', 'PPK-05')
-ON CONFLICT (code) DO NOTHING;
-
--- Beberapa Jadwal Ujian
-INSERT INTO public.exam_schedules (id, exam_date, day_name, subject_id, start_time, end_time, session, notes)
-VALUES
-  ('f0000000-0000-0000-0000-000000000001', CURRENT_DATE + INTERVAL '1 day', 'Senin', 'e0000000-0000-0000-0000-000000000001', '07:30:00', '09:30:00', 'Sesi 1', 'Hari pertama ujian semester'),
-  ('f0000000-0000-0000-0000-000000000002', CURRENT_DATE + INTERVAL '1 day', 'Senin', 'e0000000-0000-0000-0000-000000000005', '10:00:00', '11:30:00', 'Sesi 2', 'Ujian sesi siang'),
-  ('f0000000-0000-0000-0000-000000000003', CURRENT_DATE + INTERVAL '2 day', 'Selasa', 'e0000000-0000-0000-0000-000000000002', '07:30:00', '09:30:00', 'Sesi 1', 'Ujian Matematika serentak'),
-  ('f0000000-0000-0000-0000-000000000004', CURRENT_DATE + INTERVAL '3 day', 'Rabu', 'e0000000-0000-0000-0000-000000000003', '07:30:00', '09:30:00', 'Sesi 1', 'Ujian IPA Teori'),
-  ('f0000000-0000-0000-0000-000000000005', CURRENT_DATE + INTERVAL '4 day', 'Kamis', 'e0000000-0000-0000-0000-000000000004', '07:30:00', '09:30:00', 'Sesi 1', 'Ujian Bahasa Inggris')
-ON CONFLICT DO NOTHING;
-
--- Beberapa Jadwal Pengawas (Invigilator Schedules)
-INSERT INTO public.invigilator_schedules (id, exam_schedule_id, room_id, teacher_id, role, status, notes)
-VALUES
-  ('10000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Ruang 01'),
-  ('10000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Ruang 02'),
-  ('10000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000003', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Ruang 01 Sesi 2'),
-  ('10000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000004', 'Pengawas 1', 'Dijadwalkan', 'Pengawas Matematika')
-ON CONFLICT DO NOTHING;
+  'Jl. Raya Pendidikan No. 01',
+  'ASESMEN SUMATIF / UJIAN SEKOLAH',
+  '2026/2027',
+  'Ganjil',
+  'Drs. Moh. Mas''ud, S.Pd, M.Pd',
+  'P - 01',
+  'Muhammad Ainul Yaqin, M.Pd.I',
+  'P - 02',
+  'Mochammad Amiruddin, S.Pd.I',
+  'Jombang',
+  '2026-10-10',
+  1,
+  '07:30:00',
+  60,
+  30,
+  50000
+) ON CONFLICT (id) DO UPDATE SET
+  school_name = EXCLUDED.school_name,
+  school_address = EXCLUDED.school_address,
+  exam_name = EXCLUDED.exam_name,
+  academic_year = EXCLUDED.academic_year,
+  semester = EXCLUDED.semester,
+  principal_name = EXCLUDED.principal_name,
+  principal_nip = EXCLUDED.principal_nip,
+  committee_chairman_name = EXCLUDED.committee_chairman_name,
+  committee_chairman_nip = EXCLUDED.committee_chairman_nip,
+  committee_secretary_name = EXCLUDED.committee_secretary_name,
+  document_city = EXCLUDED.document_city,
+  document_date = EXCLUDED.document_date,
+  default_invigilators_per_room = EXCLUDED.default_invigilators_per_room,
+  honor_per_session = EXCLUDED.honor_per_session;

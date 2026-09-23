@@ -1766,14 +1766,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (isSupabaseConfigured()) {
       const supabase = getSupabase();
-      if (supabase && settings.id) {
+      if (supabase) {
+        // Ensure settings ID is a valid UUID
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(settings.id || '');
+        const targetId = isUuid ? settings.id : 'a0000000-0000-0000-0000-000000000001';
+
         // Safe update with iterative missing-column fallback
         // Prevents "Could not find the 'xyz' column of 'settings' in the schema cache"
         const payload: Record<string, any> = { ...updates };
         let attempts = 0;
-        while (attempts < 10 && Object.keys(payload).length > 0) {
+        while (attempts < 15 && Object.keys(payload).length > 0) {
           attempts++;
-          const { error } = await supabase.from('settings').update(payload).eq('id', settings.id);
+          const { error } = await supabase.from('settings').upsert({ id: targetId, ...payload });
           if (!error) break;
 
           // Check if error is due to a missing column in Supabase schema cache
@@ -1784,20 +1788,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (match && match[1]) {
             const missingCol = match[1];
-            console.warn(
-              `[Supabase] Kolom '${missingCol}' belum terdaftar di tabel settings Supabase. Mengabaikan kolom ini dari payload remote sync:`,
-              error.message
-            );
             delete payload[missingCol];
           } else {
             console.warn('[Supabase] Gagal menyimpan pengaturan ke remote:', error.message);
+            // If error is schema cache, RLS, or type conflict, do not block app experience
             if (
               error.message.toLowerCase().includes('schema cache') ||
-              error.message.toLowerCase().includes('column')
+              error.message.toLowerCase().includes('column') ||
+              error.message.toLowerCase().includes('policy')
             ) {
               break;
             }
-            return { success: false, error: error.message };
+            break;
           }
         }
       }
