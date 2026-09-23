@@ -507,20 +507,17 @@ interface DataContextType {
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>(() =>
-    getStoredWithMigration<string[]>(
-      STORAGE_KEYS.DELETED_PROJECTS,
-      ['sim_deleted_projects'],
-      ['proj-pas-genap-2025', 'proj-asaj-2025']
-    )
-  );
-
-  const [projects, setProjects] = useState<ExamProject[]>(() => {
-    const deleted = getStoredWithMigration<string[]>(
+  const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>(() => {
+    const stored = getStoredWithMigration<string[]>(
       STORAGE_KEYS.DELETED_PROJECTS,
       ['sim_deleted_projects'],
       ['proj-pas-genap-2025', 'proj-asaj-2025']
     );
+    return Array.from(new Set([...stored, 'proj-pas-genap-2025', 'proj-asaj-2025']));
+  });
+
+  const [projects, setProjects] = useState<ExamProject[]>(() => {
+    const deleted = ['proj-pas-genap-2025', 'proj-asaj-2025'];
     const stored = getStoredWithMigration<ExamProject[]>(
       STORAGE_KEYS.PROJECTS,
       ['sim_projects_data', 'sim_projects', 'sim_projects_v1'],
@@ -530,27 +527,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const valid = stored.filter((p) => !deleted.includes(p.id));
       if (valid.length > 0) return valid;
     }
-    return [
-      {
-        id: 'proj-real-sumatif-2026',
-        name: 'Asesmen Sumatif / Ujian Sekolah 2026/2027',
-        exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',
-        academic_year: '2026/2027',
-        semester: 'Ganjil',
-        created_at: new Date().toISOString(),
-        is_active: true,
-        exam_schedules: [],
-        invigilator_schedules: [],
-      },
-    ];
+    return INITIAL_PROJECTS;
   });
 
   const [activeProjectId, setActiveProjectId] = useState<string>(() => {
-    const deleted = getStoredWithMigration<string[]>(
-      STORAGE_KEYS.DELETED_PROJECTS,
-      ['sim_deleted_projects'],
-      ['proj-pas-genap-2025', 'proj-asaj-2025']
-    );
+    const deleted = ['proj-pas-genap-2025', 'proj-asaj-2025'];
     const storedActive = getStoredWithMigration<string>(
       STORAGE_KEYS.ACTIVE_PROJECT,
       ['sim_active_project_id', 'sim_active_project'],
@@ -566,7 +547,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     const valid = storedProjects.filter((p) => !deleted.includes(p.id));
     if (valid.length > 0) return valid[0].id;
-    return 'proj-real-sumatif-2026';
+    return INITIAL_PROJECTS[0]?.id || 'proj-real-sumatif-2026';
   });
 
   const [teachers, setTeachers] = useState<Teacher[]>(() =>
@@ -597,11 +578,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (proj && Array.isArray(proj.exam_schedules) && proj.exam_schedules.length > 0) {
       return proj.exam_schedules;
     }
-    return getStoredWithMigration<ExamSchedule[]>(
+    const storedExams = getStoredWithMigration<ExamSchedule[]>(
       STORAGE_KEYS.EXAM_SCHEDULES,
       ['sim_exam_schedules_data', 'sim_exam_schedules'],
-      INITIAL_EXAM_SCHEDULES
+      []
     );
+    if (storedExams && storedExams.length > 0) return storedExams;
+    return INITIAL_EXAM_SCHEDULES;
   });
 
   const [invigilatorSchedules, setInvigilatorSchedules] = useState<InvigilatorSchedule[]>(() => {
@@ -619,11 +602,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (proj && Array.isArray(proj.invigilator_schedules) && proj.invigilator_schedules.length > 0) {
       return proj.invigilator_schedules;
     }
-    return getStoredWithMigration<InvigilatorSchedule[]>(
+    const storedInvs = getStoredWithMigration<InvigilatorSchedule[]>(
       STORAGE_KEYS.INVIGILATOR_SCHEDULES,
       ['sim_invigilator_schedules_data', 'sim_invigilator_schedules'],
-      INITIAL_INVIGILATOR_SCHEDULES
+      []
     );
+    if (storedInvs && storedInvs.length > 0) return storedInvs;
+    return INITIAL_INVIGILATOR_SCHEDULES;
   });
 
   const [settings, setSettings] = useState<Settings>(() =>
@@ -716,7 +701,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (invigilatorRes.data && invigilatorRes.data.length > 0) setInvigilatorSchedules(invigilatorRes.data);
       if (settingsRes.data) setSettings(settingsRes.data);
 
-      // Keep projects synchronized with real Supabase schedules
+      // Keep active project synchronized with real Supabase schedules without blowing away other projects
       if (examSchedulesRes.data && examSchedulesRes.data.length > 0) {
         setProjects((prev) => {
           const currentId = activeProjectId || prev[0]?.id || 'proj-real-sumatif-2026';
@@ -731,20 +716,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
             return copy;
           } else {
-            return [
-              {
-                id: currentId,
-                name: 'Asesmen Sumatif / Ujian Sekolah 2026/2027',
-                exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',
-                academic_year: '2026/2027',
-                semester: 'Ganjil',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                is_active: true,
-                exam_schedules: examSchedulesRes.data || [],
-                invigilator_schedules: invigilatorRes.data || [],
-              },
-            ];
+            const newProj: ExamProject = {
+              id: currentId,
+              name: 'Asesmen Sumatif / Ujian Sekolah 2026/2027',
+              exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',
+              academic_year: '2026/2027',
+              semester: 'Ganjil',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              is_active: true,
+              exam_schedules: examSchedulesRes.data || [],
+              invigilator_schedules: invigilatorRes.data || [],
+            };
+            return [newProj, ...prev];
           }
         });
       }

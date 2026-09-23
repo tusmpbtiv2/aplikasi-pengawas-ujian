@@ -66,27 +66,27 @@ export const SettingsView: React.FC = () => {
 
   // Section A: Identitas Sekolah
   const [schoolName, setSchoolName] = useState(settings.school_name || 'SMP BHINNEKA TUNGGAL IKA');
-  const [schoolAddress, setSchoolAddress] = useState(settings.school_address || 'Jl. Pendidikan No. 45, Jakarta');
+  const [schoolAddress, setSchoolAddress] = useState(settings.school_address || 'Jl. Raya Pendidikan No. 01');
   const [schoolLogo, setSchoolLogo] = useState(settings.school_logo || '');
-  const [academicYear, setAcademicYear] = useState(settings.academic_year || '2024/2025');
-  const [semester, setSemester] = useState(settings.semester || 'Genap');
+  const [academicYear, setAcademicYear] = useState(settings.academic_year || '2026/2027');
+  const [semester, setSemester] = useState(settings.semester || 'Ganjil');
 
   // Section B: Pejabat & Penandatangan Dokumen (Kepala Sekolah & Panitia Ujian)
-  const [principalName, setPrincipalName] = useState(settings.principal_name || 'Drs. H. Mulyono, M.Pd.');
-  const [principalNip, setPrincipalNip] = useState(settings.principal_nip || '19680512 199403 1 005');
-  const [committeeChairmanName, setCommitteeChairmanName] = useState(settings.committee_chairman_name || 'Budi Santoso, S.Pd.');
-  const [committeeChairmanNip, setCommitteeChairmanNip] = useState(settings.committee_chairman_nip || '19750814 200003 1 002');
-  const [documentCity, setDocumentCity] = useState(settings.document_city || 'Jakarta');
+  const [principalName, setPrincipalName] = useState(settings.principal_name || "Drs. Moh. Mas'ud, S.Pd, M.Pd");
+  const [principalNip, setPrincipalNip] = useState(settings.principal_nip || 'P - 01');
+  const [committeeChairmanName, setCommitteeChairmanName] = useState(settings.committee_chairman_name || 'Muhammad Ainul Yaqin, M.Pd.I');
+  const [committeeChairmanNip, setCommitteeChairmanNip] = useState(settings.committee_chairman_nip || 'P - 02');
+  const [documentCity, setDocumentCity] = useState(settings.document_city || 'Jombang');
 
   // Section C: Pengaturan Ujian
-  const [examName, setExamName] = useState(settings.exam_name || 'Penilaian Akhir Semester (PAS) Genap');
-  const [defaultInvigilators, setDefaultInvigilators] = useState(settings.default_invigilators_per_room || 2);
+  const [examName, setExamName] = useState(settings.exam_name || 'ASESMEN SUMATIF / UJIAN SEKOLAH');
+  const [defaultInvigilators, setDefaultInvigilators] = useState(settings.default_invigilators_per_room || 1);
   const [defaultStartTime, setDefaultStartTime] = useState(settings.default_start_time || '07:30');
-  const [defaultDuration, setDefaultDuration] = useState(settings.default_duration || 90);
+  const [defaultDuration, setDefaultDuration] = useState(settings.default_duration || 60);
   const [breakDuration, setBreakDuration] = useState(settings.break_duration || 30);
 
   // Section D: Pengaturan Sistem
-  const [appName, setAppName] = useState(settings.app_name || 'Sistem Manajemen Ujian Sekolah');
+  const [appName, setAppName] = useState(settings.app_name || 'Sistem Manajemen Ujian & Pengawas Ruang');
   const [theme, setTheme] = useState<'light' | 'slate' | 'blue'>(settings.theme || 'blue');
   const [dateFormat, setDateFormat] = useState<'DD/MM/YYYY' | 'D MMMM YYYY'>(settings.date_format || 'DD/MM/YYYY');
 
@@ -104,8 +104,8 @@ export const SettingsView: React.FC = () => {
   // Project / Multi-Kegiatan Modal
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [newProjName, setNewProjName] = useState('');
-  const [newProjYear, setNewProjYear] = useState('');
-  const [newProjSemester, setNewProjSemester] = useState('Genap');
+  const [newProjYear, setNewProjYear] = useState('2026/2027');
+  const [newProjSemester, setNewProjSemester] = useState('Ganjil');
   const [newProjExamName, setNewProjExamName] = useState('');
   const [newProjDuplicate, setNewProjDuplicate] = useState(true);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -175,21 +175,21 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     if (settings) {
       setSchoolName(settings.school_name || 'SMP BHINNEKA TUNGGAL IKA');
-      setSchoolAddress(settings.school_address || 'Jl. Pendidikan No. 45, Jakarta');
+      setSchoolAddress(settings.school_address || 'Jl. Raya Pendidikan No. 01');
       setSchoolLogo(settings.school_logo || '');
-      setAcademicYear(settings.academic_year || '2024/2025');
-      setSemester(settings.semester || 'Genap');
-      setPrincipalName(settings.principal_name || 'Drs. H. Mulyono, M.Pd.');
-      setPrincipalNip(settings.principal_nip || '19680512 199403 1 005');
-      setCommitteeChairmanName(settings.committee_chairman_name || 'Budi Santoso, S.Pd.');
-      setCommitteeChairmanNip(settings.committee_chairman_nip || '19750814 200003 1 002');
-      setDocumentCity(settings.document_city || 'Jakarta');
-      setExamName(settings.exam_name || 'Penilaian Akhir Semester (PAS) Genap');
-      setDefaultInvigilators(settings.default_invigilators_per_room || 2);
+      setAcademicYear(settings.academic_year || '2026/2027');
+      setSemester(settings.semester || 'Ganjil');
+      setPrincipalName(settings.principal_name || "Drs. Moh. Mas'ud, S.Pd, M.Pd");
+      setPrincipalNip(settings.principal_nip || 'P - 01');
+      setCommitteeChairmanName(settings.committee_chairman_name || 'Muhammad Ainul Yaqin, M.Pd.I');
+      setCommitteeChairmanNip(settings.committee_chairman_nip || 'P - 02');
+      setDocumentCity(settings.document_city || 'Jombang');
+      setExamName(settings.exam_name || 'ASESMEN SUMATIF / UJIAN SEKOLAH');
+      setDefaultInvigilators(settings.default_invigilators_per_room || 1);
       setDefaultStartTime(settings.default_start_time || '07:30');
-      setDefaultDuration(settings.default_duration || 90);
-      setBreakDuration(settings.break_duration || 30);
-      setAppName(settings.app_name || 'Sistem Manajemen Ujian Sekolah');
+      setDefaultDuration(settings.default_duration || 60);
+      breakDuration !== undefined && setBreakDuration(settings.break_duration || 30);
+      setAppName(settings.app_name || 'Sistem Manajemen Ujian & Pengawas Ruang');
       setTheme(settings.theme || 'blue');
       setDateFormat(settings.date_format || 'DD/MM/YYYY');
     }

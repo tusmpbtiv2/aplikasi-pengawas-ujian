@@ -208,7 +208,7 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'Invalid payload' });
       }
 
-      // Protection: if existing DB has authentic teachers (>= 50), do not allow mock dummy data (<= 15) to overwrite it
+      // Protection: if existing DB has authentic data, do not allow empty or downgraded data to overwrite it
       if (fs.existsSync(DB_FILE)) {
         try {
           const current = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
@@ -225,6 +225,22 @@ async function startServer() {
             if (!payload.subjects || payload.subjects.length < 5) {
               payload.subjects = current.subjects;
             }
+          }
+
+          // If incoming payload has no projects, preserve existing projects
+          if ((!payload.projects || payload.projects.length === 0) && current.projects && current.projects.length > 0) {
+            payload.projects = current.projects;
+            payload.activeProjectId = payload.activeProjectId || current.activeProjectId;
+          }
+
+          // If incoming payload has empty examSchedules, preserve current schedules if available
+          if ((!payload.examSchedules || payload.examSchedules.length === 0) && current.examSchedules && current.examSchedules.length > 0) {
+            payload.examSchedules = current.examSchedules;
+          }
+
+          // If incoming payload has empty invigilatorSchedules, preserve current schedules if available
+          if ((!payload.invigilatorSchedules || payload.invigilatorSchedules.length === 0) && current.invigilatorSchedules && current.invigilatorSchedules.length > 0) {
+            payload.invigilatorSchedules = current.invigilatorSchedules;
           }
         } catch (_) {}
       }
