@@ -508,11 +508,19 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [deletedProjectIds, setDeletedProjectIds] = useState<string[]>(() =>
-    getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], [])
+    getStoredWithMigration<string[]>(
+      STORAGE_KEYS.DELETED_PROJECTS,
+      ['sim_deleted_projects'],
+      ['proj-pas-genap-2025', 'proj-asaj-2025']
+    )
   );
 
   const [projects, setProjects] = useState<ExamProject[]>(() => {
-    const deleted = getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], []);
+    const deleted = getStoredWithMigration<string[]>(
+      STORAGE_KEYS.DELETED_PROJECTS,
+      ['sim_deleted_projects'],
+      ['proj-pas-genap-2025', 'proj-asaj-2025']
+    );
     const stored = getStoredWithMigration<ExamProject[]>(
       STORAGE_KEYS.PROJECTS,
       ['sim_projects_data', 'sim_projects', 'sim_projects_v1'],
@@ -522,26 +530,27 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const valid = stored.filter((p) => !deleted.includes(p.id));
       if (valid.length > 0) return valid;
     }
-    const filteredInitial = INITIAL_PROJECTS.filter((p) => !deleted.includes(p.id));
-    return filteredInitial.length > 0
-      ? filteredInitial
-      : [
-          {
-            id: 'proj_' + Date.now(),
-            name: 'Ujian Sekolah',
-            exam_name: 'UJIAN SEKOLAH',
-            academic_year: '2024/2025',
-            semester: 'Genap',
-            created_at: new Date().toISOString(),
-            is_active: true,
-            exam_schedules: [],
-            invigilator_schedules: [],
-          },
-        ];
+    return [
+      {
+        id: 'proj-real-sumatif-2026',
+        name: 'Asesmen Sumatif / Ujian Sekolah 2026/2027',
+        exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',
+        academic_year: '2026/2027',
+        semester: 'Ganjil',
+        created_at: new Date().toISOString(),
+        is_active: true,
+        exam_schedules: [],
+        invigilator_schedules: [],
+      },
+    ];
   });
 
   const [activeProjectId, setActiveProjectId] = useState<string>(() => {
-    const deleted = getStoredWithMigration<string[]>(STORAGE_KEYS.DELETED_PROJECTS, ['sim_deleted_projects'], []);
+    const deleted = getStoredWithMigration<string[]>(
+      STORAGE_KEYS.DELETED_PROJECTS,
+      ['sim_deleted_projects'],
+      ['proj-pas-genap-2025', 'proj-asaj-2025']
+    );
     const storedActive = getStoredWithMigration<string>(
       STORAGE_KEYS.ACTIVE_PROJECT,
       ['sim_active_project_id', 'sim_active_project'],
@@ -557,8 +566,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     const valid = storedProjects.filter((p) => !deleted.includes(p.id));
     if (valid.length > 0) return valid[0].id;
-    const filteredInit = INITIAL_PROJECTS.filter((p) => !deleted.includes(p.id));
-    return filteredInit[0]?.id || 'proj-pas-genap-2025';
+    return 'proj-real-sumatif-2026';
   });
 
   const [teachers, setTeachers] = useState<Teacher[]>(() =>
@@ -696,7 +704,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supabase.from('rooms').select('*, building:buildings(*)').order('code'),
         supabase.from('subjects').select('*').order('name'),
         supabase.from('exam_schedules').select('*, subject:subjects(*)').order('exam_date').order('start_time'),
-        supabase.from('invigilator_schedules').select('*, exam_schedule:exam_schedules(*, subject:subjects(*)), room:rooms(*), teacher:teachers(*)'),
+        supabase.from('invigilator_schedules').select('*, exam_schedule:exam_schedules(*, subject:subjects(*)), room:rooms(*), teacher:teachers!invigilator_schedules_teacher_id_fkey(*)'),
         supabase.from('settings').select('*').limit(1).maybeSingle(),
       ]);
 
@@ -707,6 +715,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (examSchedulesRes.data && examSchedulesRes.data.length > 0) setExamSchedules(examSchedulesRes.data);
       if (invigilatorRes.data && invigilatorRes.data.length > 0) setInvigilatorSchedules(invigilatorRes.data);
       if (settingsRes.data) setSettings(settingsRes.data);
+
+      // Keep projects synchronized with real Supabase schedules
+      if (examSchedulesRes.data && examSchedulesRes.data.length > 0) {
+        setProjects((prev) => {
+          const currentId = activeProjectId || prev[0]?.id || 'proj-real-sumatif-2026';
+          const existingIdx = prev.findIndex((p) => p.id === currentId);
+          if (existingIdx !== -1) {
+            const copy = [...prev];
+            copy[existingIdx] = {
+              ...copy[existingIdx],
+              exam_schedules: examSchedulesRes.data || [],
+              invigilator_schedules: invigilatorRes.data || [],
+              updated_at: new Date().toISOString(),
+            };
+            return copy;
+          } else {
+            return [
+              {
+                id: currentId,
+                name: 'Asesmen Sumatif / Ujian Sekolah 2026/2027',
+                exam_name: 'ASESMEN SUMATIF / UJIAN SEKOLAH',
+                academic_year: '2026/2027',
+                semester: 'Ganjil',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                is_active: true,
+                exam_schedules: examSchedulesRes.data || [],
+                invigilator_schedules: invigilatorRes.data || [],
+              },
+            ];
+          }
+        });
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal mengambil data dari Supabase';
       console.warn('Supabase fetch error, fallback to memory state:', msg);
@@ -828,8 +869,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           setIsServerSynced(true);
         } else {
-          // If server data not yet initialized, sync initial local dataset to server
-          saveToServer();
+          // If server data not yet initialized, trigger Supabase synchronization
+          try {
+            await fetch('/api/sync-supabase', { method: 'POST' });
+            refreshAll();
+          } catch (_) {}
         }
       } catch (err) {
         console.warn('[DataContext] Server hydration fallback to local storage:', err);
@@ -839,15 +883,19 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshAll]);
 
   // Debounced auto-save to server on state modifications
   useEffect(() => {
+    // Crucial safeguard: Do not auto-save until initial server hydration is complete
+    if (!isServerSynced) return;
+
     const timer = setTimeout(() => {
       saveToServer();
     }, 1500);
     return () => clearTimeout(timer);
   }, [
+    isServerSynced,
     projects,
     activeProjectId,
     deletedProjectIds,

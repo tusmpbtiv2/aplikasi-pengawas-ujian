@@ -3,16 +3,34 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const STORAGE_URL_KEY = 'sim_supabase_url';
 const STORAGE_ANON_KEY = 'sim_supabase_anon_key';
 
+const DEFAULT_SUPABASE_URL = 'https://hruenqwrztbmsxntpclz.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhydWVucXdyenRibXN4bnRwY2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5NTc3NDYsImV4cCI6MjEwNTUzMzc0Nn0.EebQK3Y5LSFBL-KfUMAHCv1HjGuTL9aQPLHu4z-wwrc';
+
 export function getSupabaseCredentials(): { url: string; anonKey: string } {
   const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
+  const globalConfig = typeof window !== 'undefined' ? (window as any).__APP_CONFIG__ : null;
+  const globalUrl = (globalConfig?.supabaseUrl || '').trim();
+  const globalKey = (globalConfig?.supabaseAnonKey || '').trim();
+
   const localUrl = (typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) || '' : '').trim();
   const localKey = (typeof window !== 'undefined' ? localStorage.getItem(STORAGE_ANON_KEY) || '' : '').trim();
 
+  const finalUrl = envUrl || globalUrl || localUrl || DEFAULT_SUPABASE_URL;
+  const finalKey = envKey || globalKey || localKey || DEFAULT_SUPABASE_ANON_KEY;
+
+  if (typeof window !== 'undefined' && !localUrl && finalUrl) {
+    try {
+      localStorage.setItem(STORAGE_URL_KEY, finalUrl);
+      localStorage.setItem(STORAGE_ANON_KEY, finalKey);
+    } catch (_) {}
+  }
+
   return {
-    url: envUrl || localUrl,
-    anonKey: envKey || localKey,
+    url: finalUrl,
+    anonKey: finalKey,
   };
 }
 
